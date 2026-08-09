@@ -19,6 +19,7 @@ include(CompilerWarnings)
 add_library(curiodb_core
   src/cli/shell.cpp
   src/sql/lexer.cpp
+  src/sql/parser.cpp
   src/sql/token.cpp
 )
 

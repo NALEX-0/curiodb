@@ -11,7 +11,9 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(curiodb_tests
   shell_test.cpp
+  sql/ast_test.cpp
   sql/lexer_test.cpp
+  sql/parser_test.cpp
   sql/token_test.cpp
   version_test.cpp
 )

@@ -27,8 +27,7 @@ std::string uppercase(std::string_view text) {
   std::string result;
   result.reserve(text.size());
   for (const char character : text) {
-    result.push_back(static_cast<char>(
-        std::toupper(static_cast<unsigned char>(character))));
+    result.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(character))));
   }
   return result;
 }
