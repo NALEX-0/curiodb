@@ -1,0 +1,24 @@
+# CMake build trees
+/build/
+/cmake-build-*/
+/out/
+
+# Generated CMake files
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+_deps/
+cmake_install.cmake
+compile_commands.json
+
+# Compiled artifacts
+*.a
+*.dylib
+*.o
+
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
