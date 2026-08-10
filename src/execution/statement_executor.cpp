@@ -1,6 +1,12 @@
 #include "curiodb/execution/statement_executor.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -17,6 +23,16 @@ ExecutionResult from_catalog_result(catalog::CatalogResult result,
     return {.success = false, .message = std::move(result->message)};
   }
   return {.success = true, .message = std::move(success_message)};
+}
+
+std::string normalize(std::string_view name) {
+  std::string result;
+  result.reserve(name.size());
+  for (const char character : name) {
+    result.push_back(static_cast<char>(
+        std::tolower(static_cast<unsigned char>(character))));
+  }
+  return result;
 }
 
 }  // namespace
@@ -131,16 +147,47 @@ ExecutionResult StatementExecutor::execute_select(
   }
 
   QueryResult query;
-  query.columns.reserve(table->schema().columns.size());
-  for (const auto& column : table->schema().columns) {
-    query.columns.push_back(column.name);
+  std::vector<std::size_t> column_indexes;
+  if (statement.columns.empty()) {
+    column_indexes.reserve(table->schema().columns.size());
+    for (std::size_t index = 0; index < table->schema().columns.size(); ++index) {
+      column_indexes.push_back(index);
+    }
+  } else {
+    column_indexes.reserve(statement.columns.size());
+    std::unordered_set<std::size_t> selected_indexes;
+    for (const auto& selected : statement.columns) {
+      const std::string selected_name = normalize(selected.name);
+      const auto column = std::find_if(
+          table->schema().columns.begin(), table->schema().columns.end(),
+          [&selected_name](const catalog::ColumnSchema& candidate) {
+            return normalize(candidate.name) == selected_name;
+          });
+      if (column == table->schema().columns.end()) {
+        return {.success = false,
+                .message = "column '" + selected.name + "' does not exist"};
+      }
+      const auto index = static_cast<std::size_t>(
+          std::distance(table->schema().columns.begin(), column));
+      if (!selected_indexes.insert(index).second) {
+        return {.success = false,
+                .message = "column '" + selected.name +
+                           "' selected more than once"};
+      }
+      column_indexes.push_back(index);
+    }
+  }
+
+  query.columns.reserve(column_indexes.size());
+  for (const std::size_t index : column_indexes) {
+    query.columns.push_back(table->schema().columns[index].name);
   }
   query.rows.reserve(table->row_count());
   for (const auto& row : table->rows()) {
     std::vector<std::string> values;
-    values.reserve(row.size());
-    for (const auto& value : row.values()) {
-      values.push_back(value.to_string());
+    values.reserve(column_indexes.size());
+    for (const std::size_t index : column_indexes) {
+      values.push_back(row[index].to_string());
     }
     query.rows.push_back(std::move(values));
   }

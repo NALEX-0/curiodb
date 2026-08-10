@@ -220,8 +220,19 @@ std::optional<Statement> Parser::parse_insert() {
 
 std::optional<Statement> Parser::parse_select() {
   const SourceLocation location = advance().location;
-  if (!consume(TokenType::Star, "expected '*' after SELECT") ||
-      !consume(TokenType::From, "expected FROM after '*'")) {
+  std::vector<SelectStatement::Column> columns;
+  if (!match(TokenType::Star)) {
+    do {
+      const auto column =
+          consume(TokenType::Identifier, "expected '*' or column name after SELECT");
+      if (!column.has_value()) {
+        return std::nullopt;
+      }
+      columns.push_back(
+          {.name = column->lexeme, .location = column->location});
+    } while (match(TokenType::Comma));
+  }
+  if (!consume(TokenType::From, "expected FROM after selected columns")) {
     return std::nullopt;
   }
   const auto table =
@@ -230,6 +241,7 @@ std::optional<Statement> Parser::parse_select() {
     return std::nullopt;
   }
   return Statement{SelectStatement{
+      .columns = std::move(columns),
       .table_name = table->lexeme,
       .location = location,
   }};

@@ -64,6 +64,16 @@ struct InsertStatement {
 };
 
 struct SelectStatement {
+  struct Column {
+    std::string name;
+    SourceLocation location;
+
+    [[nodiscard]] friend bool operator==(
+        const Column&, const Column&) = default;
+  };
+
+  // An empty list represents SELECT *.
+  std::vector<Column> columns;
   std::string table_name;
   SourceLocation location;
 

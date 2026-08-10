@@ -150,15 +150,28 @@ TEST(ParserTest, ParsesSelectAll) {
       expect_success(parse("SELECT * FROM employees;"));
   const auto& select = std::get<SelectStatement>(statement);
 
+  EXPECT_TRUE(select.columns.empty());
   EXPECT_EQ(select.table_name, "employees");
   EXPECT_EQ(select.location, (SourceLocation{0, 1, 1}));
 }
 
 TEST(ParserTest, RejectsUnsupportedSelectForms) {
-  EXPECT_EQ(expect_error(parse("SELECT id FROM employees;")).message,
-            "expected '*' after SELECT, found 'id'");
   EXPECT_EQ(expect_error(parse("SELECT * employees;")).message,
-            "expected FROM after '*', found 'employees'");
+            "expected FROM after selected columns, found 'employees'");
+  EXPECT_EQ(expect_error(parse("SELECT FROM employees;")).message,
+            "expected '*' or column name after SELECT, found 'FROM'");
+}
+
+TEST(ParserTest, ParsesColumnProjectionInRequestedOrder) {
+  const auto& statement =
+      expect_success(parse("SELECT name, salary FROM employees;"));
+  const auto& select = std::get<SelectStatement>(statement);
+
+  ASSERT_EQ(select.columns.size(), 2U);
+  EXPECT_EQ(select.columns[0].name, "name");
+  EXPECT_EQ(select.columns[0].location, (SourceLocation{7, 1, 8}));
+  EXPECT_EQ(select.columns[1].name, "salary");
+  EXPECT_EQ(select.table_name, "employees");
 }
 
 }  // namespace

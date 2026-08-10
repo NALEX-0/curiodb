@@ -125,7 +125,7 @@ TEST(StatementExecutorTest, SelectsAllRowsWithColumnNames) {
   }).success);
 
   const auto result = executor.execute(
-      sql::SelectStatement{.table_name = "employees"});
+      sql::SelectStatement{.columns = {}, .table_name = "employees"});
 
   ASSERT_TRUE(result.success);
   EXPECT_EQ(result.message, "1 row selected.");
@@ -150,12 +150,74 @@ TEST(StatementExecutorTest, SelectsFromEmptyTable) {
   }).success);
 
   const auto result = executor.execute(
-      sql::SelectStatement{.table_name = "employees"});
+      sql::SelectStatement{.columns = {}, .table_name = "employees"});
 
   EXPECT_TRUE(result.success);
   EXPECT_EQ(result.message, "0 rows selected.");
   ASSERT_TRUE(result.query.has_value());
   EXPECT_TRUE(result.query->rows.empty());
+}
+
+TEST(StatementExecutorTest, ProjectsColumnsCaseInsensitivelyInRequestedOrder) {
+  catalog::Catalog catalog;
+  storage::InMemoryStorage storage;
+  StatementExecutor executor{catalog, storage};
+  ASSERT_TRUE(executor.execute(
+      sql::CreateDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(
+      sql::UseDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(sql::CreateTableStatement{
+      .name = "employees",
+      .columns = {{.name = "id", .type = {.kind = DataTypeKind::Integer}},
+                  {.name = "name",
+                   .type = {.kind = DataTypeKind::Varchar, .length = 10}},
+                  {.name = "salary",
+                   .type = {.kind = DataTypeKind::Double}}},
+  }).success);
+  ASSERT_TRUE(executor.execute(sql::InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{1}},
+                 {.value = std::string{"Alice"}},
+                 {.value = 65000.0}},
+  }).success);
+
+  const auto result = executor.execute(sql::SelectStatement{
+      .columns = {{.name = "SALARY"}, {.name = "Name"}},
+      .table_name = "employees",
+  });
+
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.query.has_value());
+  EXPECT_EQ(result.query->columns,
+            (std::vector<std::string>{"salary", "name"}));
+  EXPECT_EQ(result.query->rows,
+            (std::vector<std::vector<std::string>>{{"65000", "Alice"}}));
+}
+
+TEST(StatementExecutorTest, RejectsUnknownAndDuplicateProjectedColumns) {
+  catalog::Catalog catalog;
+  storage::InMemoryStorage storage;
+  StatementExecutor executor{catalog, storage};
+  ASSERT_TRUE(executor.execute(
+      sql::CreateDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(
+      sql::UseDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(sql::CreateTableStatement{
+      .name = "employees",
+      .columns = {{.name = "id", .type = {.kind = DataTypeKind::Integer}}},
+  }).success);
+
+  const auto unknown = executor.execute(sql::SelectStatement{
+      .columns = {{.name = "missing"}}, .table_name = "employees"});
+  EXPECT_FALSE(unknown.success);
+  EXPECT_EQ(unknown.message, "column 'missing' does not exist");
+
+  const auto duplicate = executor.execute(sql::SelectStatement{
+      .columns = {{.name = "id"}, {.name = "ID"}},
+      .table_name = "employees",
+  });
+  EXPECT_FALSE(duplicate.success);
+  EXPECT_EQ(duplicate.message, "column 'ID' selected more than once");
 }
 
 }  // namespace

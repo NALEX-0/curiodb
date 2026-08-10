@@ -34,6 +34,7 @@ name VARCHAR(100)
 );
 INSERT INTO employees VALUES (1, 'Alice');
 SELECT * FROM employees;
+SELECT name, id FROM employees;
 .databases
 .tables
 .schema employees
@@ -51,6 +52,8 @@ SELECT * FROM employees;
   EXPECT_NE(result.find("id | name"), std::string::npos);
   EXPECT_NE(result.find("1  | Alice"), std::string::npos);
   EXPECT_NE(result.find("1 row selected."), std::string::npos);
+  EXPECT_NE(result.find("name  | id"), std::string::npos);
+  EXPECT_NE(result.find("Alice | 1"), std::string::npos);
   EXPECT_NE(result.find("CREATE TABLE employees (\n"
                         "  id INT,\n"
                         "  name VARCHAR(100)\n"

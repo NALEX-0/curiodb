@@ -90,11 +90,24 @@ TEST(AstTest, RepresentsInsertWithTypedLiterals) {
 
 TEST(AstTest, RepresentsSelectAll) {
   const Statement statement = SelectStatement{
+      .columns = {},
       .table_name = "employees",
       .location = {.offset = 0, .line = 1, .column = 1},
   };
 
   EXPECT_EQ(std::get<SelectStatement>(statement).table_name, "employees");
+}
+
+TEST(AstTest, RepresentsProjectedColumns) {
+  const Statement statement = SelectStatement{
+      .columns = {{.name = "name"}, {.name = "salary"}},
+      .table_name = "employees",
+  };
+
+  const auto& select = std::get<SelectStatement>(statement);
+  ASSERT_EQ(select.columns.size(), 2U);
+  EXPECT_EQ(select.columns[0].name, "name");
+  EXPECT_EQ(select.columns[1].name, "salary");
 }
 
 }  // namespace
