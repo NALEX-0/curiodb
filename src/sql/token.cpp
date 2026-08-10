@@ -42,6 +42,10 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "FROM";
     case TokenType::Where:
       return "WHERE";
+    case TokenType::And:
+      return "AND";
+    case TokenType::Or:
+      return "OR";
     case TokenType::LeftParen:
       return "(";
     case TokenType::RightParen:

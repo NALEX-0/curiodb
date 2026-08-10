@@ -116,18 +116,42 @@ TEST(AstTest, RepresentsWhereComparison) {
   const Statement statement = SelectStatement{
       .columns = {},
       .table_name = "employees",
-      .where = ComparisonExpression{
+      .where = Expression{ComparisonExpression{
           .column_name = "salary",
           .operation = ComparisonOperator::GreaterThan,
           .value = {.value = 70000.0},
-      },
+      }},
   };
 
   const auto& where = std::get<SelectStatement>(statement).where;
   ASSERT_TRUE(where.has_value());
-  EXPECT_EQ(where->column_name, "salary");
-  EXPECT_EQ(where->operation, ComparisonOperator::GreaterThan);
-  EXPECT_DOUBLE_EQ(std::get<double>(where->value.value), 70000.0);
+  const auto& comparison = std::get<ComparisonExpression>(where->node);
+  EXPECT_EQ(comparison.column_name, "salary");
+  EXPECT_EQ(comparison.operation, ComparisonOperator::GreaterThan);
+  EXPECT_DOUBLE_EQ(std::get<double>(comparison.value.value), 70000.0);
+}
+
+TEST(AstTest, ComparesRecursiveLogicalExpressionsStructurally) {
+  const auto comparison = [] {
+    return Expression{ComparisonExpression{
+        .column_name = "id",
+        .operation = ComparisonOperator::Equal,
+        .value = {.value = std::int64_t{1}},
+    }};
+  };
+  const Expression first{std::make_shared<LogicalExpression>(LogicalExpression{
+      .operation = LogicalOperator::And,
+      .left = comparison(),
+      .right = comparison(),
+  })};
+  const Expression second{
+      std::make_shared<LogicalExpression>(LogicalExpression{
+          .operation = LogicalOperator::And,
+          .left = comparison(),
+          .right = comparison(),
+      })};
+
+  EXPECT_EQ(first, second);
 }
 
 }  // namespace

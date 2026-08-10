@@ -1,5 +1,10 @@
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -10,6 +15,22 @@
 
 namespace curiodb::execution {
 namespace {
+
+sql::Expression equals(std::string column, sql::LiteralValue value) {
+  return sql::Expression{sql::ComparisonExpression{
+      .column_name = std::move(column),
+      .operation = sql::ComparisonOperator::Equal,
+      .value = {.value = std::move(value)},
+  }};
+}
+
+sql::Expression logical(sql::LogicalOperator operation, sql::Expression left,
+                        sql::Expression right) {
+  return sql::Expression{std::make_shared<sql::LogicalExpression>(
+      sql::LogicalExpression{.operation = operation,
+                             .left = std::move(left),
+                             .right = std::move(right)})};
+}
 
 TEST(StatementExecutorTest, AppliesStatementsToCatalog) {
   catalog::Catalog catalog;
@@ -252,11 +273,11 @@ TEST(StatementExecutorTest, FiltersRowsBeforeProjection) {
   const auto result = executor.execute(sql::SelectStatement{
       .columns = {{.name = "name"}},
       .table_name = "employees",
-      .where = sql::ComparisonExpression{
+      .where = sql::Expression{sql::ComparisonExpression{
           .column_name = "SALARY",
           .operation = sql::ComparisonOperator::GreaterThan,
           .value = {.value = 70000.0},
-      },
+      }},
   });
 
   ASSERT_TRUE(result.success);
@@ -283,15 +304,57 @@ TEST(StatementExecutorTest, RejectsWhereValueWithWrongType) {
   const auto result = executor.execute(sql::SelectStatement{
       .columns = {},
       .table_name = "employees",
-      .where = sql::ComparisonExpression{
+      .where = sql::Expression{sql::ComparisonExpression{
           .column_name = "id",
           .operation = sql::ComparisonOperator::Equal,
           .value = {.value = std::string{"one"}},
-      },
+      }},
   });
 
   EXPECT_FALSE(result.success);
   EXPECT_EQ(result.message, "column 'id': expected INT, received VARCHAR");
+}
+
+TEST(StatementExecutorTest, EvaluatesNestedBooleanExpressions) {
+  catalog::Catalog catalog;
+  storage::InMemoryStorage storage;
+  StatementExecutor executor{catalog, storage};
+  ASSERT_TRUE(executor.execute(
+      sql::CreateDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(
+      sql::UseDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(sql::CreateTableStatement{
+      .name = "employees",
+      .columns = {{.name = "id", .type = {.kind = DataTypeKind::Integer}},
+                  {.name = "name",
+                   .type = {.kind = DataTypeKind::Varchar, .length = 10}}},
+  }).success);
+  ASSERT_TRUE(executor.execute(sql::InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{1}},
+                 {.value = std::string{"Alice"}}},
+  }).success);
+  ASSERT_TRUE(executor.execute(sql::InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{2}},
+                 {.value = std::string{"Bob"}}},
+  }).success);
+
+  auto expression = logical(
+      sql::LogicalOperator::And,
+      logical(sql::LogicalOperator::Or, equals("id", std::int64_t{1}),
+              equals("id", std::int64_t{2})),
+      equals("name", std::string{"Bob"}));
+  const auto result = executor.execute(sql::SelectStatement{
+      .columns = {{.name = "name"}},
+      .table_name = "employees",
+      .where = std::move(expression),
+  });
+
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.query.has_value());
+  EXPECT_EQ(result.query->rows,
+            (std::vector<std::vector<std::string>>{{"Bob"}}));
 }
 
 }  // namespace

@@ -47,6 +47,9 @@ class Parser {
   [[nodiscard]] std::optional<DataType> parse_data_type();
   [[nodiscard]] std::optional<Literal> parse_literal();
   [[nodiscard]] std::optional<ComparisonExpression> parse_comparison();
+  [[nodiscard]] std::optional<Expression> parse_or_expression();
+  [[nodiscard]] std::optional<Expression> parse_and_expression();
+  [[nodiscard]] std::optional<Expression> parse_expression_primary();
 
   std::vector<Token> tokens_;
   std::size_t current_index_{0};

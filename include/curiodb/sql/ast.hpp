@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -83,6 +85,55 @@ struct ComparisonExpression {
       const ComparisonExpression&, const ComparisonExpression&) = default;
 };
 
+enum class LogicalOperator {
+  And,
+  Or,
+};
+
+struct LogicalExpression;
+
+struct Expression {
+  using Node =
+      std::variant<ComparisonExpression, std::shared_ptr<LogicalExpression>>;
+
+  explicit Expression(ComparisonExpression comparison)
+      : node(std::move(comparison)) {}
+  explicit Expression(std::shared_ptr<LogicalExpression> logical)
+      : node(std::move(logical)) {}
+
+  Node node;
+
+  friend bool operator==(const Expression& left, const Expression& right);
+};
+
+struct LogicalExpression {
+  LogicalOperator operation{LogicalOperator::And};
+  Expression left;
+  Expression right;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const LogicalExpression&, const LogicalExpression&) = default;
+};
+
+inline bool operator==(const Expression& left, const Expression& right) {
+  if (left.node.index() != right.node.index()) {
+    return false;
+  }
+  if (const auto* comparison =
+          std::get_if<ComparisonExpression>(&left.node)) {
+    return *comparison == std::get<ComparisonExpression>(right.node);
+  }
+  const auto& left_logical =
+      std::get<std::shared_ptr<LogicalExpression>>(left.node);
+  const auto& right_logical =
+      std::get<std::shared_ptr<LogicalExpression>>(right.node);
+  if (left_logical == nullptr || right_logical == nullptr) {
+    return left_logical == right_logical;
+  }
+  return *left_logical == *right_logical;
+}
+
 struct SelectStatement {
   struct Column {
     std::string name;
@@ -95,7 +146,7 @@ struct SelectStatement {
   // An empty list represents SELECT *
   std::vector<Column> columns;
   std::string table_name;
-  std::optional<ComparisonExpression> where;
+  std::optional<Expression> where;
   SourceLocation location;
 
   [[nodiscard]] friend bool operator==(

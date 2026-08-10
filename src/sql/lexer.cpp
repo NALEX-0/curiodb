@@ -47,6 +47,8 @@ TokenType identifier_type(std::string_view text) {
       {"SELECT", TokenType::Select},
       {"FROM", TokenType::From},
       {"WHERE", TokenType::Where},
+      {"AND", TokenType::And},
+      {"OR", TokenType::Or},
   };
 
   const auto keyword = keywords.find(uppercase(text));

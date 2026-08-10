@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -240,9 +241,9 @@ std::optional<Statement> Parser::parse_select() {
   if (!table.has_value()) {
     return std::nullopt;
   }
-  std::optional<ComparisonExpression> where;
+  std::optional<Expression> where;
   if (match(TokenType::Where)) {
-    where = parse_comparison();
+    where = parse_or_expression();
     if (!where.has_value()) {
       return std::nullopt;
     }
@@ -384,6 +385,63 @@ std::optional<ComparisonExpression> Parser::parse_comparison() {
       .value = std::move(*value),
       .location = column->location,
   };
+}
+
+std::optional<Expression> Parser::parse_or_expression() {
+  auto expression = parse_and_expression();
+  if (!expression.has_value()) {
+    return std::nullopt;
+  }
+  while (match(TokenType::Or)) {
+    const SourceLocation location = tokens_[current_index_ - 1].location;
+    auto right = parse_and_expression();
+    if (!right.has_value()) {
+      return std::nullopt;
+    }
+    expression = Expression{std::make_shared<LogicalExpression>(
+        LogicalExpression{.operation = LogicalOperator::Or,
+                          .left = std::move(*expression),
+                          .right = std::move(*right),
+                          .location = location})};
+  }
+  return expression;
+}
+
+std::optional<Expression> Parser::parse_and_expression() {
+  auto expression = parse_expression_primary();
+  if (!expression.has_value()) {
+    return std::nullopt;
+  }
+  while (match(TokenType::And)) {
+    const SourceLocation location = tokens_[current_index_ - 1].location;
+    auto right = parse_expression_primary();
+    if (!right.has_value()) {
+      return std::nullopt;
+    }
+    expression = Expression{std::make_shared<LogicalExpression>(
+        LogicalExpression{.operation = LogicalOperator::And,
+                          .left = std::move(*expression),
+                          .right = std::move(*right),
+                          .location = location})};
+  }
+  return expression;
+}
+
+std::optional<Expression> Parser::parse_expression_primary() {
+  if (match(TokenType::LeftParen)) {
+    auto expression = parse_or_expression();
+    if (!expression.has_value() ||
+        !consume(TokenType::RightParen,
+                 "expected ')' after WHERE expression")) {
+      return std::nullopt;
+    }
+    return expression;
+  }
+  auto comparison = parse_comparison();
+  if (!comparison.has_value()) {
+    return std::nullopt;
+  }
+  return Expression{std::move(*comparison)};
 }
 
 }  // namespace curiodb::sql

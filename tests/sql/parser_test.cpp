@@ -1,3 +1,4 @@
+#include <memory>
 #include <string>
 #include <utility>
 #include <variant>
@@ -182,10 +183,12 @@ TEST(ParserTest, ParsesWhereComparison) {
   const auto& select = std::get<SelectStatement>(statement);
 
   ASSERT_TRUE(select.where.has_value());
-  EXPECT_EQ(select.where->column_name, "salary");
-  EXPECT_EQ(select.where->operation, ComparisonOperator::GreaterThanOrEqual);
-  EXPECT_DOUBLE_EQ(std::get<double>(select.where->value.value), 70000.0);
-  EXPECT_EQ(select.where->location, (SourceLocation{33, 1, 34}));
+  const auto& comparison =
+      std::get<ComparisonExpression>(select.where->node);
+  EXPECT_EQ(comparison.column_name, "salary");
+  EXPECT_EQ(comparison.operation, ComparisonOperator::GreaterThanOrEqual);
+  EXPECT_DOUBLE_EQ(std::get<double>(comparison.value.value), 70000.0);
+  EXPECT_EQ(comparison.location, (SourceLocation{33, 1, 34}));
 }
 
 TEST(ParserTest, ParsesAllComparisonOperators) {
@@ -202,7 +205,9 @@ TEST(ParserTest, ParsesAllComparisonOperators) {
   for (const auto& [text, expected] : cases) {
     const auto statement =
         expect_success(parse("SELECT * FROM employees WHERE id " + text + " 1;"));
-    EXPECT_EQ(std::get<SelectStatement>(statement).where->operation, expected);
+    const auto& expression = *std::get<SelectStatement>(statement).where;
+    EXPECT_EQ(std::get<ComparisonExpression>(expression.node).operation,
+              expected);
   }
 }
 
@@ -211,6 +216,42 @@ TEST(ParserTest, RejectsMalformedWhereComparison) {
             "expected column name after WHERE, found '='");
   EXPECT_EQ(expect_error(parse("SELECT * FROM employees WHERE id 1;")).message,
             "expected comparison operator after column, found '1'");
+}
+
+TEST(ParserTest, GivesAndHigherPrecedenceThanOr) {
+  const auto statement = expect_success(parse(
+      "SELECT * FROM employees WHERE id = 1 OR id = 2 AND name = 'Bob';"));
+  const auto& expression = *std::get<SelectStatement>(statement).where;
+  const auto& root =
+      *std::get<std::shared_ptr<LogicalExpression>>(expression.node);
+
+  EXPECT_EQ(root.operation, LogicalOperator::Or);
+  const auto& right =
+      *std::get<std::shared_ptr<LogicalExpression>>(root.right.node);
+  EXPECT_EQ(right.operation, LogicalOperator::And);
+}
+
+TEST(ParserTest, ParenthesesOverrideBooleanPrecedence) {
+  const auto statement = expect_success(parse(
+      "SELECT * FROM employees WHERE (id = 1 OR id = 2) AND name = 'Bob';"));
+  const auto& expression = *std::get<SelectStatement>(statement).where;
+  const auto& root =
+      *std::get<std::shared_ptr<LogicalExpression>>(expression.node);
+
+  EXPECT_EQ(root.operation, LogicalOperator::And);
+  const auto& left =
+      *std::get<std::shared_ptr<LogicalExpression>>(root.left.node);
+  EXPECT_EQ(left.operation, LogicalOperator::Or);
+}
+
+TEST(ParserTest, RejectsIncompleteBooleanExpressions) {
+  EXPECT_EQ(
+      expect_error(parse("SELECT * FROM employees WHERE id = 1 AND;")).message,
+      "expected column name after WHERE, found ';'");
+  EXPECT_EQ(expect_error(
+                parse("SELECT * FROM employees WHERE (id = 1 OR id = 2;"))
+                .message,
+            "expected ')' after WHERE expression, found ';'");
 }
 
 }  // namespace

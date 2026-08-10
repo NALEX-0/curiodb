@@ -4,6 +4,8 @@
 #include <cctype>
 #include <compare>
 #include <cstddef>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -185,28 +187,76 @@ ExecutionResult StatementExecutor::execute_select(
   }
 
   QueryResult query;
-  std::optional<std::size_t> filter_index;
-  std::optional<Value> filter_value;
+  std::optional<FilterOperator::Predicate> predicate;
   if (statement.where.has_value()) {
-    const std::string filter_name = normalize(statement.where->column_name);
-    const auto column = std::find_if(
-        table->schema().columns.begin(), table->schema().columns.end(),
-        [&filter_name](const catalog::ColumnSchema& candidate) {
-          return normalize(candidate.name) == filter_name;
-        });
-    if (column == table->schema().columns.end()) {
-      return {.success = false,
-              .message = "column '" + statement.where->column_name +
-                         "' does not exist"};
-    }
-    filter_index = static_cast<std::size_t>(
-        std::distance(table->schema().columns.begin(), column));
-    filter_value = value_from_literal(statement.where->value);
-    if (filter_value->type() != column->type.kind) {
-      return {.success = false,
-              .message = "column '" + column->name + "': expected " +
-                         format_data_type(column->type) + ", received " +
-                         value_type_name(filter_value->type())};
+    std::string binding_error;
+    std::function<std::optional<FilterOperator::Predicate>(
+        const sql::Expression&)>
+        bind_expression;
+    bind_expression = [&](const sql::Expression& expression)
+        -> std::optional<FilterOperator::Predicate> {
+      if (const auto* comparison =
+              std::get_if<sql::ComparisonExpression>(&expression.node)) {
+        const std::string filter_name = normalize(comparison->column_name);
+        const auto column = std::find_if(
+            table->schema().columns.begin(), table->schema().columns.end(),
+            [&filter_name](const catalog::ColumnSchema& candidate) {
+              return normalize(candidate.name) == filter_name;
+            });
+        if (column == table->schema().columns.end()) {
+          binding_error =
+              "column '" + comparison->column_name + "' does not exist";
+          return std::nullopt;
+        }
+        const auto index = static_cast<std::size_t>(
+            std::distance(table->schema().columns.begin(), column));
+        const Value comparison_value = value_from_literal(comparison->value);
+        if (comparison_value.type() != column->type.kind) {
+          binding_error = "column '" + column->name + "': expected " +
+                          format_data_type(column->type) + ", received " +
+                          value_type_name(comparison_value.type());
+          return std::nullopt;
+        }
+        const sql::ComparisonOperator operation = comparison->operation;
+        return FilterOperator::Predicate{
+            [index, operation,
+             comparison_value](const storage::Row& row) {
+              return matches(row[index], operation, comparison_value);
+            }};
+      }
+
+      const auto& logical_pointer =
+          std::get<std::shared_ptr<sql::LogicalExpression>>(expression.node);
+      if (logical_pointer == nullptr) {
+        binding_error = "invalid WHERE expression";
+        return std::nullopt;
+      }
+      const auto& logical = *logical_pointer;
+      auto left = bind_expression(logical.left);
+      if (!left.has_value()) {
+        return std::nullopt;
+      }
+      auto right = bind_expression(logical.right);
+      if (!right.has_value()) {
+        return std::nullopt;
+      }
+      if (logical.operation == sql::LogicalOperator::And) {
+        return FilterOperator::Predicate{
+            [left = std::move(*left), right = std::move(*right)](
+                const storage::Row& row) {
+              return left(row) && right(row);
+            }};
+      }
+      return FilterOperator::Predicate{
+          [left = std::move(*left), right = std::move(*right)](
+              const storage::Row& row) {
+            return left(row) || right(row);
+          }};
+    };
+
+    predicate = bind_expression(*statement.where);
+    if (!predicate.has_value()) {
+      return {.success = false, .message = std::move(binding_error)};
     }
   }
 
@@ -247,17 +297,8 @@ ExecutionResult StatementExecutor::execute_select(
   }
 
   RowSet rows = SequentialScanOperator{*table}.execute();
-  if (filter_index.has_value()) {
-    const std::size_t index = *filter_index;
-    const sql::ComparisonOperator operation = statement.where->operation;
-    const Value comparison_value = *filter_value;
-    rows = FilterOperator{
-        std::move(rows),
-        [index, operation,
-         comparison_value](const storage::Row& row) {
-          return matches(row[index], operation, comparison_value);
-        }}
-               .execute();
+  if (predicate.has_value()) {
+    rows = FilterOperator{std::move(rows), std::move(*predicate)}.execute();
   }
   query.rows =
       ProjectionOperator{std::move(rows), std::move(column_indexes)}.execute();
