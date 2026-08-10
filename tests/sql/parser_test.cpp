@@ -1,5 +1,7 @@
 #include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -172,6 +174,43 @@ TEST(ParserTest, ParsesColumnProjectionInRequestedOrder) {
   EXPECT_EQ(select.columns[0].location, (SourceLocation{7, 1, 8}));
   EXPECT_EQ(select.columns[1].name, "salary");
   EXPECT_EQ(select.table_name, "employees");
+}
+
+TEST(ParserTest, ParsesWhereComparison) {
+  const auto& statement = expect_success(
+      parse("SELECT name FROM employees WHERE salary >= 70000.0;"));
+  const auto& select = std::get<SelectStatement>(statement);
+
+  ASSERT_TRUE(select.where.has_value());
+  EXPECT_EQ(select.where->column_name, "salary");
+  EXPECT_EQ(select.where->operation, ComparisonOperator::GreaterThanOrEqual);
+  EXPECT_DOUBLE_EQ(std::get<double>(select.where->value.value), 70000.0);
+  EXPECT_EQ(select.where->location, (SourceLocation{33, 1, 34}));
+}
+
+TEST(ParserTest, ParsesAllComparisonOperators) {
+  const std::vector<std::pair<std::string, ComparisonOperator>> cases{
+      {"=", ComparisonOperator::Equal},
+      {"!=", ComparisonOperator::NotEqual},
+      {"<>", ComparisonOperator::NotEqual},
+      {"<", ComparisonOperator::LessThan},
+      {"<=", ComparisonOperator::LessThanOrEqual},
+      {">", ComparisonOperator::GreaterThan},
+      {">=", ComparisonOperator::GreaterThanOrEqual},
+  };
+
+  for (const auto& [text, expected] : cases) {
+    const auto statement =
+        expect_success(parse("SELECT * FROM employees WHERE id " + text + " 1;"));
+    EXPECT_EQ(std::get<SelectStatement>(statement).where->operation, expected);
+  }
+}
+
+TEST(ParserTest, RejectsMalformedWhereComparison) {
+  EXPECT_EQ(expect_error(parse("SELECT * FROM employees WHERE = 1;")).message,
+            "expected column name after WHERE, found '='");
+  EXPECT_EQ(expect_error(parse("SELECT * FROM employees WHERE id 1;")).message,
+            "expected comparison operator after column, found '1'");
 }
 
 }  // namespace

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -63,6 +64,25 @@ struct InsertStatement {
       const InsertStatement&, const InsertStatement&) = default;
 };
 
+enum class ComparisonOperator {
+  Equal,
+  NotEqual,
+  LessThan,
+  LessThanOrEqual,
+  GreaterThan,
+  GreaterThanOrEqual,
+};
+
+struct ComparisonExpression {
+  std::string column_name;
+  ComparisonOperator operation{ComparisonOperator::Equal};
+  Literal value;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const ComparisonExpression&, const ComparisonExpression&) = default;
+};
+
 struct SelectStatement {
   struct Column {
     std::string name;
@@ -72,9 +92,10 @@ struct SelectStatement {
         const Column&, const Column&) = default;
   };
 
-  // An empty list represents SELECT *.
+  // An empty list represents SELECT *
   std::vector<Column> columns;
   std::string table_name;
+  std::optional<ComparisonExpression> where;
   SourceLocation location;
 
   [[nodiscard]] friend bool operator==(

@@ -220,5 +220,79 @@ TEST(StatementExecutorTest, RejectsUnknownAndDuplicateProjectedColumns) {
   EXPECT_EQ(duplicate.message, "column 'ID' selected more than once");
 }
 
+TEST(StatementExecutorTest, FiltersRowsBeforeProjection) {
+  catalog::Catalog catalog;
+  storage::InMemoryStorage storage;
+  StatementExecutor executor{catalog, storage};
+  ASSERT_TRUE(executor.execute(
+      sql::CreateDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(
+      sql::UseDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(sql::CreateTableStatement{
+      .name = "employees",
+      .columns = {{.name = "id", .type = {.kind = DataTypeKind::Integer}},
+                  {.name = "name",
+                   .type = {.kind = DataTypeKind::Varchar, .length = 10}},
+                  {.name = "salary",
+                   .type = {.kind = DataTypeKind::Double}}},
+  }).success);
+  ASSERT_TRUE(executor.execute(sql::InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{1}},
+                 {.value = std::string{"Alice"}},
+                 {.value = 65000.0}},
+  }).success);
+  ASSERT_TRUE(executor.execute(sql::InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{2}},
+                 {.value = std::string{"Bob"}},
+                 {.value = 72000.0}},
+  }).success);
+
+  const auto result = executor.execute(sql::SelectStatement{
+      .columns = {{.name = "name"}},
+      .table_name = "employees",
+      .where = sql::ComparisonExpression{
+          .column_name = "SALARY",
+          .operation = sql::ComparisonOperator::GreaterThan,
+          .value = {.value = 70000.0},
+      },
+  });
+
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.query.has_value());
+  EXPECT_EQ(result.query->columns, (std::vector<std::string>{"name"}));
+  EXPECT_EQ(result.query->rows,
+            (std::vector<std::vector<std::string>>{{"Bob"}}));
+  EXPECT_EQ(result.message, "1 row selected.");
+}
+
+TEST(StatementExecutorTest, RejectsWhereValueWithWrongType) {
+  catalog::Catalog catalog;
+  storage::InMemoryStorage storage;
+  StatementExecutor executor{catalog, storage};
+  ASSERT_TRUE(executor.execute(
+      sql::CreateDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(
+      sql::UseDatabaseStatement{.name = "company"}).success);
+  ASSERT_TRUE(executor.execute(sql::CreateTableStatement{
+      .name = "employees",
+      .columns = {{.name = "id", .type = {.kind = DataTypeKind::Integer}}},
+  }).success);
+
+  const auto result = executor.execute(sql::SelectStatement{
+      .columns = {},
+      .table_name = "employees",
+      .where = sql::ComparisonExpression{
+          .column_name = "id",
+          .operation = sql::ComparisonOperator::Equal,
+          .value = {.value = std::string{"one"}},
+      },
+  });
+
+  EXPECT_FALSE(result.success);
+  EXPECT_EQ(result.message, "column 'id': expected INT, received VARCHAR");
+}
+
 }  // namespace
 }  // namespace curiodb::execution

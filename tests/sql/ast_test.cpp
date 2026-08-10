@@ -92,6 +92,7 @@ TEST(AstTest, RepresentsSelectAll) {
   const Statement statement = SelectStatement{
       .columns = {},
       .table_name = "employees",
+      .where = std::nullopt,
       .location = {.offset = 0, .line = 1, .column = 1},
   };
 
@@ -102,12 +103,31 @@ TEST(AstTest, RepresentsProjectedColumns) {
   const Statement statement = SelectStatement{
       .columns = {{.name = "name"}, {.name = "salary"}},
       .table_name = "employees",
+      .where = std::nullopt,
   };
 
   const auto& select = std::get<SelectStatement>(statement);
   ASSERT_EQ(select.columns.size(), 2U);
   EXPECT_EQ(select.columns[0].name, "name");
   EXPECT_EQ(select.columns[1].name, "salary");
+}
+
+TEST(AstTest, RepresentsWhereComparison) {
+  const Statement statement = SelectStatement{
+      .columns = {},
+      .table_name = "employees",
+      .where = ComparisonExpression{
+          .column_name = "salary",
+          .operation = ComparisonOperator::GreaterThan,
+          .value = {.value = 70000.0},
+      },
+  };
+
+  const auto& where = std::get<SelectStatement>(statement).where;
+  ASSERT_TRUE(where.has_value());
+  EXPECT_EQ(where->column_name, "salary");
+  EXPECT_EQ(where->operation, ComparisonOperator::GreaterThan);
+  EXPECT_DOUBLE_EQ(std::get<double>(where->value.value), 70000.0);
 }
 
 }  // namespace

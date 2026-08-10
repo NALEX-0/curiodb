@@ -240,9 +240,17 @@ std::optional<Statement> Parser::parse_select() {
   if (!table.has_value()) {
     return std::nullopt;
   }
+  std::optional<ComparisonExpression> where;
+  if (match(TokenType::Where)) {
+    where = parse_comparison();
+    if (!where.has_value()) {
+      return std::nullopt;
+    }
+  }
   return Statement{SelectStatement{
       .columns = std::move(columns),
       .table_name = table->lexeme,
+      .where = std::move(where),
       .location = location,
   }};
 }
@@ -338,6 +346,44 @@ std::optional<Literal> Parser::parse_literal() {
   report_error(current(), "expected integer, floating-point, or string value, found " +
                               found_token(current()));
   return std::nullopt;
+}
+
+std::optional<ComparisonExpression> Parser::parse_comparison() {
+  const auto column =
+      consume(TokenType::Identifier, "expected column name after WHERE");
+  if (!column.has_value()) {
+    return std::nullopt;
+  }
+
+  ComparisonOperator operation;
+  if (match(TokenType::Equal)) {
+    operation = ComparisonOperator::Equal;
+  } else if (match(TokenType::NotEqual)) {
+    operation = ComparisonOperator::NotEqual;
+  } else if (match(TokenType::LessThan)) {
+    operation = ComparisonOperator::LessThan;
+  } else if (match(TokenType::LessThanOrEqual)) {
+    operation = ComparisonOperator::LessThanOrEqual;
+  } else if (match(TokenType::GreaterThan)) {
+    operation = ComparisonOperator::GreaterThan;
+  } else if (match(TokenType::GreaterThanOrEqual)) {
+    operation = ComparisonOperator::GreaterThanOrEqual;
+  } else {
+    report_error(current(), "expected comparison operator after column, found " +
+                                found_token(current()));
+    return std::nullopt;
+  }
+
+  auto value = parse_literal();
+  if (!value.has_value()) {
+    return std::nullopt;
+  }
+  return ComparisonExpression{
+      .column_name = column->lexeme,
+      .operation = operation,
+      .value = std::move(*value),
+      .location = column->location,
+  };
 }
 
 }  // namespace curiodb::sql

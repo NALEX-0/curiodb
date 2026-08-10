@@ -27,7 +27,7 @@ TEST(LexerTest, TokenizesEmptyInput) {
 TEST(LexerTest, RecognizesKeywordsWithoutCaseSensitivity) {
   const auto tokens =
       Lexer{"create DATABASE Use table INT double VarChar insert INTO values "
-            "select FROM"}
+            "select FROM where"}
           .tokenize();
 
   EXPECT_EQ(types_of(tokens),
@@ -37,6 +37,7 @@ TEST(LexerTest, RecognizesKeywordsWithoutCaseSensitivity) {
                                     TokenType::Varchar, TokenType::Insert,
                                     TokenType::Into, TokenType::Values,
                                     TokenType::Select, TokenType::From,
+                                    TokenType::Where,
                                     TokenType::EndOfInput}));
 }
 

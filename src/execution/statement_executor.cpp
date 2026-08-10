@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <compare>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -33,6 +35,42 @@ std::string normalize(std::string_view name) {
         std::tolower(static_cast<unsigned char>(character))));
   }
   return result;
+}
+
+Value value_from_literal(const sql::Literal& literal) {
+  return std::visit([](const auto& value) { return Value{value}; },
+                    literal.value);
+}
+
+std::string value_type_name(DataTypeKind type) {
+  switch (type) {
+    case DataTypeKind::Integer:
+      return "INT";
+    case DataTypeKind::Double:
+      return "DOUBLE";
+    case DataTypeKind::Varchar:
+      return "VARCHAR";
+  }
+  return "UNKNOWN";
+}
+
+bool matches(const Value& left, sql::ComparisonOperator operation,
+             const Value& right) {
+  switch (operation) {
+    case sql::ComparisonOperator::Equal:
+      return left == right;
+    case sql::ComparisonOperator::NotEqual:
+      return left != right;
+    case sql::ComparisonOperator::LessThan:
+      return std::is_lt(left <=> right);
+    case sql::ComparisonOperator::LessThanOrEqual:
+      return std::is_lteq(left <=> right);
+    case sql::ComparisonOperator::GreaterThan:
+      return std::is_gt(left <=> right);
+    case sql::ComparisonOperator::GreaterThanOrEqual:
+      return std::is_gteq(left <=> right);
+  }
+  return false;
 }
 
 }  // namespace
@@ -119,8 +157,7 @@ ExecutionResult StatementExecutor::execute_insert(
   std::vector<Value> values;
   values.reserve(statement.values.size());
   for (const auto& literal : statement.values) {
-    values.push_back(std::visit(
-        [](const auto& value) { return Value{value}; }, literal.value));
+    values.push_back(value_from_literal(literal));
   }
   if (auto error = table->insert(storage::Row{std::move(values)});
       error.has_value()) {
@@ -147,6 +184,31 @@ ExecutionResult StatementExecutor::execute_select(
   }
 
   QueryResult query;
+  std::optional<std::size_t> filter_index;
+  std::optional<Value> filter_value;
+  if (statement.where.has_value()) {
+    const std::string filter_name = normalize(statement.where->column_name);
+    const auto column = std::find_if(
+        table->schema().columns.begin(), table->schema().columns.end(),
+        [&filter_name](const catalog::ColumnSchema& candidate) {
+          return normalize(candidate.name) == filter_name;
+        });
+    if (column == table->schema().columns.end()) {
+      return {.success = false,
+              .message = "column '" + statement.where->column_name +
+                         "' does not exist"};
+    }
+    filter_index = static_cast<std::size_t>(
+        std::distance(table->schema().columns.begin(), column));
+    filter_value = value_from_literal(statement.where->value);
+    if (filter_value->type() != column->type.kind) {
+      return {.success = false,
+              .message = "column '" + column->name + "': expected " +
+                         format_data_type(column->type) + ", received " +
+                         value_type_name(filter_value->type())};
+    }
+  }
+
   std::vector<std::size_t> column_indexes;
   if (statement.columns.empty()) {
     column_indexes.reserve(table->schema().columns.size());
@@ -184,6 +246,11 @@ ExecutionResult StatementExecutor::execute_select(
   }
   query.rows.reserve(table->row_count());
   for (const auto& row : table->rows()) {
+    if (filter_index.has_value() &&
+        !matches(row[*filter_index], statement.where->operation,
+                 *filter_value)) {
+      continue;
+    }
     std::vector<std::string> values;
     values.reserve(column_indexes.size());
     for (const std::size_t index : column_indexes) {

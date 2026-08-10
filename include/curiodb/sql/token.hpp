@@ -41,6 +41,7 @@ enum class TokenType {
   Values,
   Select,
   From,
+  Where,
 
   // Punctuation
   LeftParen,
