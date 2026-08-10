@@ -72,6 +72,30 @@ TEST(AstTest, SupportsStructuralEquality) {
   EXPECT_EQ(first, second);
 }
 
+TEST(AstTest, RepresentsInsertWithTypedLiterals) {
+  const Statement statement = InsertStatement{
+      .table_name = "employees",
+      .values = {{.value = std::int64_t{1}},
+                 {.value = std::string{"Alice"}},
+                 {.value = 65000.0}},
+      .location = {.offset = 0, .line = 1, .column = 1},
+  };
+
+  const auto& insert = std::get<InsertStatement>(statement);
+  ASSERT_EQ(insert.values.size(), 3U);
+  EXPECT_EQ(std::get<std::int64_t>(insert.values[0].value), 1);
+  EXPECT_EQ(std::get<std::string>(insert.values[1].value), "Alice");
+  EXPECT_DOUBLE_EQ(std::get<double>(insert.values[2].value), 65000.0);
+}
+
+TEST(AstTest, RepresentsSelectAll) {
+  const Statement statement = SelectStatement{
+      .table_name = "employees",
+      .location = {.offset = 0, .line = 1, .column = 1},
+  };
+
+  EXPECT_EQ(std::get<SelectStatement>(statement).table_name, "employees");
+}
+
 }  // namespace
 }  // namespace curiodb::sql
-

@@ -4,6 +4,7 @@
 #include <string>
 
 #include "curiodb/catalog/catalog.hpp"
+#include "curiodb/storage/in_memory_storage.hpp"
 
 namespace curiodb::cli {
 
@@ -20,6 +21,7 @@ class Shell {
   std::istream& input_;
   std::ostream& output_;
   catalog::Catalog catalog_;
+  storage::InMemoryStorage storage_;
 };
 
 }  // namespace curiodb::cli

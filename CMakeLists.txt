@@ -24,6 +24,9 @@ add_library(curiodb_core
   src/sql/parser.cpp
   src/types/data_type.cpp
   src/sql/token.cpp
+  src/storage/in_memory_table.cpp
+  src/storage/in_memory_storage.cpp
+  src/storage/row_validation.cpp
   src/types/value.cpp
 )
 

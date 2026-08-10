@@ -36,6 +36,11 @@ enum class TokenType {
   Int,
   Double,
   Varchar,
+  Insert,
+  Into,
+  Values,
+  Select,
+  From,
 
   // Punctuation
   LeftParen,
@@ -68,4 +73,3 @@ struct Token {
 };
 
 }  // namespace curiodb::sql
-

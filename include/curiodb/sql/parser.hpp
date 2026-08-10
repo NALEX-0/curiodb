@@ -41,8 +41,11 @@ class Parser {
   [[nodiscard]] std::optional<Statement> parse_create_table(
       SourceLocation statement_location);
   [[nodiscard]] std::optional<Statement> parse_use();
+  [[nodiscard]] std::optional<Statement> parse_insert();
+  [[nodiscard]] std::optional<Statement> parse_select();
   [[nodiscard]] std::optional<ColumnDefinition> parse_column();
   [[nodiscard]] std::optional<DataType> parse_data_type();
+  [[nodiscard]] std::optional<Literal> parse_literal();
 
   std::vector<Token> tokens_;
   std::size_t current_index_{0};
@@ -50,4 +53,3 @@ class Parser {
 };
 
 }  // namespace curiodb::sql
-

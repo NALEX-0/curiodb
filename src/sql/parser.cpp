@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -15,6 +16,19 @@ std::string found_token(const Token& token) {
     return "end of input";
   }
   return "'" + token.lexeme + "'";
+}
+
+std::string decode_sql_string(const std::string& lexeme) {
+  std::string value;
+  value.reserve(lexeme.size() - 2);
+  for (std::size_t index = 1; index + 1 < lexeme.size(); ++index) {
+    if (lexeme[index] == '\'' && index + 1 < lexeme.size() - 1 &&
+        lexeme[index + 1] == '\'') {
+      ++index;
+    }
+    value.push_back(lexeme[index]);
+  }
+  return value;
 }
 
 }  // namespace
@@ -31,10 +45,14 @@ ParseResult Parser::parse_statement() {
     statement = parse_create();
   } else if (check(TokenType::Use)) {
     statement = parse_use();
+  } else if (check(TokenType::Insert)) {
+    statement = parse_insert();
+  } else if (check(TokenType::Select)) {
+    statement = parse_select();
   } else if (check(TokenType::Invalid)) {
     report_error(current(), "invalid token " + found_token(current()));
   } else {
-    report_error(current(), "expected CREATE or USE, found " +
+    report_error(current(), "expected CREATE, USE, INSERT, or SELECT, found " +
                                 found_token(current()));
   }
 
@@ -164,6 +182,59 @@ std::optional<Statement> Parser::parse_use() {
   }};
 }
 
+std::optional<Statement> Parser::parse_insert() {
+  const SourceLocation location = advance().location;
+  if (!consume(TokenType::Into, "expected INTO after INSERT")) {
+    return std::nullopt;
+  }
+  const auto table =
+      consume(TokenType::Identifier, "expected table name after INTO");
+  if (!table.has_value() ||
+      !consume(TokenType::Values, "expected VALUES after table name") ||
+      !consume(TokenType::LeftParen, "expected '(' after VALUES")) {
+    return std::nullopt;
+  }
+  if (check(TokenType::RightParen)) {
+    report_error(current(), "expected at least one value");
+    return std::nullopt;
+  }
+
+  std::vector<Literal> values;
+  do {
+    auto value = parse_literal();
+    if (!value.has_value()) {
+      return std::nullopt;
+    }
+    values.push_back(std::move(*value));
+  } while (match(TokenType::Comma));
+
+  if (!consume(TokenType::RightParen, "expected ')' after values")) {
+    return std::nullopt;
+  }
+  return Statement{InsertStatement{
+      .table_name = table->lexeme,
+      .values = std::move(values),
+      .location = location,
+  }};
+}
+
+std::optional<Statement> Parser::parse_select() {
+  const SourceLocation location = advance().location;
+  if (!consume(TokenType::Star, "expected '*' after SELECT") ||
+      !consume(TokenType::From, "expected FROM after '*'")) {
+    return std::nullopt;
+  }
+  const auto table =
+      consume(TokenType::Identifier, "expected table name after FROM");
+  if (!table.has_value()) {
+    return std::nullopt;
+  }
+  return Statement{SelectStatement{
+      .table_name = table->lexeme,
+      .location = location,
+  }};
+}
+
 std::optional<ColumnDefinition> Parser::parse_column() {
   const auto name = consume(TokenType::Identifier, "expected column name");
   if (!name.has_value()) {
@@ -216,5 +287,45 @@ std::optional<DataType> Parser::parse_data_type() {
   return DataType{.kind = DataTypeKind::Varchar, .length = length};
 }
 
-}  // namespace curiodb::sql
+std::optional<Literal> Parser::parse_literal() {
+  const SourceLocation location = current().location;
+  const bool negative = match(TokenType::Minus);
 
+  if (check(TokenType::IntegerLiteral)) {
+    const Token token = advance();
+    const std::string text = negative ? "-" + token.lexeme : token.lexeme;
+    std::int64_t value = 0;
+    const auto conversion =
+        std::from_chars(text.data(), text.data() + text.size(), value);
+    if (conversion.ec != std::errc{} ||
+        conversion.ptr != text.data() + text.size()) {
+      report_error(token, "integer literal is out of range");
+      return std::nullopt;
+    }
+    return Literal{.value = value, .location = location};
+  }
+  if (check(TokenType::FloatingPointLiteral)) {
+    const Token token = advance();
+    const std::string text = negative ? "-" + token.lexeme : token.lexeme;
+    double value = 0.0;
+    const auto conversion =
+        std::from_chars(text.data(), text.data() + text.size(), value);
+    if (conversion.ec != std::errc{} ||
+        conversion.ptr != text.data() + text.size()) {
+      report_error(token, "floating-point literal is out of range");
+      return std::nullopt;
+    }
+    return Literal{.value = value, .location = location};
+  }
+  if (!negative && check(TokenType::StringLiteral)) {
+    const Token token = advance();
+    return Literal{.value = decode_sql_string(token.lexeme),
+                   .location = location};
+  }
+
+  report_error(current(), "expected integer, floating-point, or string value, found " +
+                              found_token(current()));
+  return std::nullopt;
+}
+
+}  // namespace curiodb::sql

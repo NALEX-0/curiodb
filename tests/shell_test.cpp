@@ -32,6 +32,8 @@ CREATE TABLE employees (
 id INT,
 name VARCHAR(100)
 );
+INSERT INTO employees VALUES (1, 'Alice');
+SELECT * FROM employees;
 .databases
 .tables
 .schema employees
@@ -45,10 +47,30 @@ name VARCHAR(100)
   EXPECT_NE(result.find("Database 'company' created."), std::string::npos);
   EXPECT_NE(result.find("Using database 'company'."), std::string::npos);
   EXPECT_NE(result.find("Table 'employees' created."), std::string::npos);
+  EXPECT_NE(result.find("1 row inserted."), std::string::npos);
+  EXPECT_NE(result.find("id | name"), std::string::npos);
+  EXPECT_NE(result.find("1  | Alice"), std::string::npos);
+  EXPECT_NE(result.find("1 row selected."), std::string::npos);
   EXPECT_NE(result.find("CREATE TABLE employees (\n"
                         "  id INT,\n"
                         "  name VARCHAR(100)\n"
                         ");"),
+            std::string::npos);
+}
+
+TEST(ShellTest, RejectsInsertThatDoesNotMatchSchema) {
+  std::istringstream input{R"(CREATE DATABASE company;
+USE company;
+CREATE TABLE employees (id INT);
+INSERT INTO employees VALUES ('wrong');
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell shell{input, output};
+
+  EXPECT_EQ(shell.run(), 0);
+  EXPECT_NE(output.str().find(
+                "Error: column 'id': expected INT, received VARCHAR"),
             std::string::npos);
 }
 

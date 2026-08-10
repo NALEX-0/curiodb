@@ -30,6 +30,16 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "DOUBLE";
     case TokenType::Varchar:
       return "VARCHAR";
+    case TokenType::Insert:
+      return "INSERT";
+    case TokenType::Into:
+      return "INTO";
+    case TokenType::Values:
+      return "VALUES";
+    case TokenType::Select:
+      return "SELECT";
+    case TokenType::From:
+      return "FROM";
     case TokenType::LeftParen:
       return "(";
     case TokenType::RightParen:
@@ -66,4 +76,3 @@ std::string_view token_type_name(TokenType type) noexcept {
 }
 
 }  // namespace curiodb::sql
-

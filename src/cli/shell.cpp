@@ -1,11 +1,15 @@
 #include "curiodb/cli/shell.hpp"
 
+#include <algorithm>
+#include <cstddef>
+#include <iomanip>
 #include <istream>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include "curiodb/execution/statement_executor.hpp"
 #include "curiodb/sql/lexer.hpp"
@@ -20,6 +24,43 @@ bool statement_complete(const std::string& sql) {
   const auto tokens = sql::Lexer{sql}.tokenize();
   return tokens.size() >= 2 &&
          tokens[tokens.size() - 2].type == sql::TokenType::Semicolon;
+}
+
+void print_query(std::ostream& output,
+                 const execution::QueryResult& query) {
+  std::vector<std::size_t> widths;
+  widths.reserve(query.columns.size());
+  for (const auto& column : query.columns) {
+    widths.push_back(column.size());
+  }
+  for (const auto& row : query.rows) {
+    for (std::size_t index = 0; index < row.size(); ++index) {
+      widths[index] = std::max(widths[index], row[index].size());
+    }
+  }
+
+  const auto print_values = [&](const std::vector<std::string>& values) {
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index != 0) {
+        output << " | ";
+      }
+      output << std::left << std::setw(static_cast<int>(widths[index]))
+             << values[index];
+    }
+    output << '\n';
+  };
+
+  print_values(query.columns);
+  for (std::size_t index = 0; index < widths.size(); ++index) {
+    if (index != 0) {
+      output << "-+-";
+    }
+    output << std::string(widths[index], '-');
+  }
+  output << '\n';
+  for (const auto& row : query.rows) {
+    print_values(row);
+  }
 }
 
 }  // namespace
@@ -71,11 +112,14 @@ void Shell::execute_sql(const std::string& sql_text) {
     return;
   }
 
-  execution::StatementExecutor executor{catalog_};
+  execution::StatementExecutor executor{catalog_, storage_};
   const auto result =
       executor.execute(std::get<sql::Statement>(parse_result));
   if (!result.success) {
     output_ << "Error: ";
+  }
+  if (result.query.has_value()) {
+    print_query(output_, *result.query);
   }
   output_ << result.message << '\n';
 }

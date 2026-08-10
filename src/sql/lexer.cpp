@@ -41,6 +41,11 @@ TokenType identifier_type(std::string_view text) {
       {"INT", TokenType::Int},
       {"DOUBLE", TokenType::Double},
       {"VARCHAR", TokenType::Varchar},
+      {"INSERT", TokenType::Insert},
+      {"INTO", TokenType::Into},
+      {"VALUES", TokenType::Values},
+      {"SELECT", TokenType::Select},
+      {"FROM", TokenType::From},
   };
 
   const auto keyword = keywords.find(uppercase(text));
@@ -194,4 +199,3 @@ Token Lexer::make_token(TokenType type) const {
 }
 
 }  // namespace curiodb::sql
-

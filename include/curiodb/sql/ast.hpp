@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <variant>
 #include <vector>
@@ -44,8 +45,34 @@ struct CreateTableStatement {
       const CreateTableStatement&, const CreateTableStatement&) = default;
 };
 
+using LiteralValue = std::variant<std::int64_t, double, std::string>;
+
+struct Literal {
+  LiteralValue value;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(const Literal&, const Literal&) = default;
+};
+
+struct InsertStatement {
+  std::string table_name;
+  std::vector<Literal> values;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const InsertStatement&, const InsertStatement&) = default;
+};
+
+struct SelectStatement {
+  std::string table_name;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const SelectStatement&, const SelectStatement&) = default;
+};
+
 using Statement =
     std::variant<CreateDatabaseStatement, UseDatabaseStatement,
-                 CreateTableStatement>;
+                 CreateTableStatement, InsertStatement, SelectStatement>;
 
 }  // namespace curiodb::sql

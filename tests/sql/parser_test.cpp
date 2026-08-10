@@ -72,7 +72,8 @@ TEST(ParserTest, RequiresSemicolon) {
 TEST(ParserTest, RejectsUnsupportedStatement) {
   const auto& error = expect_error(parse("employees;"));
 
-  EXPECT_EQ(error.message, "expected CREATE or USE, found 'employees'");
+  EXPECT_EQ(error.message,
+            "expected CREATE, USE, INSERT, or SELECT, found 'employees'");
   EXPECT_EQ(error.location, (SourceLocation{0, 1, 1}));
 }
 
@@ -119,6 +120,45 @@ TEST(ParserTest, RejectsTrailingTokens) {
 
   EXPECT_EQ(error.message, "expected end of input, found 'USE'");
   EXPECT_EQ(error.location, (SourceLocation{13, 1, 14}));
+}
+
+TEST(ParserTest, ParsesInsertWithTypedAndEscapedLiterals) {
+  const auto result =
+      parse("INSERT INTO employees VALUES (-1, 'O''Brien', 65000.5);");
+  const auto& statement = expect_success(result);
+  const auto& insert = std::get<InsertStatement>(statement);
+
+  EXPECT_EQ(insert.table_name, "employees");
+  ASSERT_EQ(insert.values.size(), 3U);
+  EXPECT_EQ(std::get<std::int64_t>(insert.values[0].value), -1);
+  EXPECT_EQ(std::get<std::string>(insert.values[1].value), "O'Brien");
+  EXPECT_DOUBLE_EQ(std::get<double>(insert.values[2].value), 65000.5);
+  EXPECT_EQ(insert.location, (SourceLocation{0, 1, 1}));
+}
+
+TEST(ParserTest, RejectsMalformedInsert) {
+  EXPECT_EQ(expect_error(parse("INSERT employees VALUES (1);" )).message,
+            "expected INTO after INSERT, found 'employees'");
+  EXPECT_EQ(expect_error(parse("INSERT INTO employees VALUES ();" )).message,
+            "expected at least one value");
+  EXPECT_EQ(expect_error(parse("INSERT INTO employees VALUES (name);" )).message,
+            "expected integer, floating-point, or string value, found 'name'");
+}
+
+TEST(ParserTest, ParsesSelectAll) {
+  const auto& statement =
+      expect_success(parse("SELECT * FROM employees;"));
+  const auto& select = std::get<SelectStatement>(statement);
+
+  EXPECT_EQ(select.table_name, "employees");
+  EXPECT_EQ(select.location, (SourceLocation{0, 1, 1}));
+}
+
+TEST(ParserTest, RejectsUnsupportedSelectForms) {
+  EXPECT_EQ(expect_error(parse("SELECT id FROM employees;")).message,
+            "expected '*' after SELECT, found 'id'");
+  EXPECT_EQ(expect_error(parse("SELECT * employees;")).message,
+            "expected FROM after '*', found 'employees'");
 }
 
 }  // namespace

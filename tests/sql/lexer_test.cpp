@@ -26,13 +26,18 @@ TEST(LexerTest, TokenizesEmptyInput) {
 
 TEST(LexerTest, RecognizesKeywordsWithoutCaseSensitivity) {
   const auto tokens =
-      Lexer{"create DATABASE Use table INT double VarChar"}.tokenize();
+      Lexer{"create DATABASE Use table INT double VarChar insert INTO values "
+            "select FROM"}
+          .tokenize();
 
   EXPECT_EQ(types_of(tokens),
             (std::vector<TokenType>{TokenType::Create, TokenType::Database,
                                     TokenType::Use, TokenType::Table,
                                     TokenType::Int, TokenType::Double,
-                                    TokenType::Varchar, TokenType::EndOfInput}));
+                                    TokenType::Varchar, TokenType::Insert,
+                                    TokenType::Into, TokenType::Values,
+                                    TokenType::Select, TokenType::From,
+                                    TokenType::EndOfInput}));
 }
 
 TEST(LexerTest, KeepsNonKeywordsAsIdentifiers) {
@@ -125,4 +130,3 @@ TEST(LexerTest, MarksUnterminatedStringAsInvalid) {
 
 }  // namespace
 }  // namespace curiodb::sql
-
