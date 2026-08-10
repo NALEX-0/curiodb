@@ -11,6 +11,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(curiodb_tests
   catalog/catalog_test.cpp
+  execution/operators_test.cpp
   execution/statement_executor_test.cpp
   shell_test.cpp
   storage/in_memory_storage_test.cpp

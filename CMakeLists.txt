@@ -19,6 +19,7 @@ include(CompilerWarnings)
 add_library(curiodb_core
   src/catalog/catalog.cpp
   src/cli/shell.cpp
+  src/execution/operators.cpp
   src/execution/statement_executor.cpp
   src/sql/lexer.cpp
   src/sql/parser.cpp

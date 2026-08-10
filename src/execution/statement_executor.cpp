@@ -13,6 +13,7 @@
 #include <variant>
 #include <vector>
 
+#include "curiodb/execution/operators.hpp"
 #include "curiodb/storage/row.hpp"
 #include "curiodb/types/value.hpp"
 
@@ -244,20 +245,22 @@ ExecutionResult StatementExecutor::execute_select(
   for (const std::size_t index : column_indexes) {
     query.columns.push_back(table->schema().columns[index].name);
   }
-  query.rows.reserve(table->row_count());
-  for (const auto& row : table->rows()) {
-    if (filter_index.has_value() &&
-        !matches(row[*filter_index], statement.where->operation,
-                 *filter_value)) {
-      continue;
-    }
-    std::vector<std::string> values;
-    values.reserve(column_indexes.size());
-    for (const std::size_t index : column_indexes) {
-      values.push_back(row[index].to_string());
-    }
-    query.rows.push_back(std::move(values));
+
+  RowSet rows = SequentialScanOperator{*table}.execute();
+  if (filter_index.has_value()) {
+    const std::size_t index = *filter_index;
+    const sql::ComparisonOperator operation = statement.where->operation;
+    const Value comparison_value = *filter_value;
+    rows = FilterOperator{
+        std::move(rows),
+        [index, operation,
+         comparison_value](const storage::Row& row) {
+          return matches(row[index], operation, comparison_value);
+        }}
+               .execute();
   }
+  query.rows =
+      ProjectionOperator{std::move(rows), std::move(column_indexes)}.execute();
 
   const std::size_t count = query.rows.size();
   return {
