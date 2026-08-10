@@ -24,6 +24,7 @@ add_library(curiodb_core
   src/sql/parser.cpp
   src/types/data_type.cpp
   src/sql/token.cpp
+  src/types/value.cpp
 )
 
 add_library(CurioDB::core ALIAS curiodb_core)
