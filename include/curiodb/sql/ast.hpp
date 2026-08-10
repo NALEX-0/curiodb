@@ -1,28 +1,13 @@
 #pragma once
 
-#include <cstddef>
-#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
 
 #include "curiodb/sql/token.hpp"
+#include "curiodb/types/data_type.hpp"
 
 namespace curiodb::sql {
-
-enum class DataTypeKind {
-  Integer,
-  Double,
-  Varchar,
-};
-
-struct DataType {
-  DataTypeKind kind{DataTypeKind::Integer};
-  std::optional<std::size_t> length;
-
-  [[nodiscard]] friend bool operator==(const DataType&, const DataType&) =
-      default;
-};
 
 struct ColumnDefinition {
   std::string name;
@@ -64,4 +49,3 @@ using Statement =
                  CreateTableStatement>;
 
 }  // namespace curiodb::sql
-

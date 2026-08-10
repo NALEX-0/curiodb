@@ -17,9 +17,12 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 
 add_library(curiodb_core
+  src/catalog/catalog.cpp
   src/cli/shell.cpp
+  src/execution/statement_executor.cpp
   src/sql/lexer.cpp
   src/sql/parser.cpp
+  src/types/data_type.cpp
   src/sql/token.cpp
 )
 

@@ -10,6 +10,8 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(curiodb_tests
+  catalog/catalog_test.cpp
+  execution/statement_executor_test.cpp
   shell_test.cpp
   sql/ast_test.cpp
   sql/lexer_test.cpp
