@@ -18,6 +18,7 @@ add_executable(curiodb_tests
   storage/in_memory_table_test.cpp
   storage/row_test.cpp
   storage/row_validation_test.cpp
+  storage/serialization_test.cpp
   sql/ast_test.cpp
   sql/lexer_test.cpp
   sql/parser_test.cpp
