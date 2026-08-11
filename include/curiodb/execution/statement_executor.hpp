@@ -7,6 +7,7 @@
 #include "curiodb/catalog/catalog.hpp"
 #include "curiodb/sql/ast.hpp"
 #include "curiodb/storage/in_memory_storage.hpp"
+#include "curiodb/storage/disk_storage.hpp"
 
 namespace curiodb::execution {
 
@@ -30,6 +31,7 @@ struct ExecutionResult {
 class StatementExecutor {
  public:
   StatementExecutor(catalog::Catalog& catalog, storage::InMemoryStorage& storage);
+  StatementExecutor(catalog::Catalog& catalog, storage::DiskStorage& storage);
 
   [[nodiscard]] ExecutionResult execute(const sql::Statement& statement);
 
@@ -46,7 +48,8 @@ class StatementExecutor {
       const sql::SelectStatement& statement);
 
   catalog::Catalog& catalog_;
-  storage::InMemoryStorage& storage_;
+  storage::InMemoryStorage* in_memory_storage_{nullptr};
+  storage::DiskStorage* disk_storage_{nullptr};
 };
 
 }  // namespace curiodb::execution

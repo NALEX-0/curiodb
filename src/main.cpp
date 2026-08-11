@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 #include <string_view>
 
@@ -34,6 +35,7 @@ int main(int argc, char* argv[]) {
     return 2;
   }
 
-  curiodb::cli::Shell shell{std::cin, std::cout};
+  curiodb::cli::Shell shell{std::cin, std::cout,
+                            std::filesystem::current_path() / ".curiodb"};
   return shell.run();
 }

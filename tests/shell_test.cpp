@@ -1,9 +1,39 @@
+#include <chrono>
+#include <filesystem>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 #include <gtest/gtest.h>
 
 #include "curiodb/cli/shell.hpp"
+
+namespace {
+
+class TemporaryDataDirectory {
+ public:
+  TemporaryDataDirectory() {
+    const auto suffix = std::chrono::steady_clock::now()
+                            .time_since_epoch()
+                            .count();
+    path_ = std::filesystem::temp_directory_path() /
+            ("curiodb_shell_test_" + std::to_string(suffix));
+  }
+
+  ~TemporaryDataDirectory() {
+    std::error_code ignored;
+    std::filesystem::remove_all(path_, ignored);
+  }
+
+  [[nodiscard]] const std::filesystem::path& path() const noexcept {
+    return path_;
+  }
+
+ private:
+  std::filesystem::path path_;
+};
+
+}  // namespace
 
 TEST(ShellTest, DisplaysPromptAndQuitsCleanly) {
   std::istringstream input{".quit\n"};
@@ -89,4 +119,37 @@ TEST(ShellTest, DisplaysParseAndCatalogErrors) {
             std::string::npos);
   EXPECT_NE(output.str().find("expected ';' after statement"),
             std::string::npos);
+}
+
+TEST(ShellTest, PersistsTablesAndRowsAcrossShellRestarts) {
+  TemporaryDataDirectory directory;
+  {
+    std::istringstream input{R"(CREATE DATABASE company;
+USE company;
+CREATE TABLE employees (id INT, name VARCHAR(100));
+INSERT INTO employees VALUES (1, 'Alice');
+INSERT INTO employees VALUES (2, 'Bob');
+.quit
+)"};
+    std::ostringstream output;
+    curiodb::cli::Shell shell{input, output, directory.path()};
+    ASSERT_EQ(shell.run(), 0) << output.str();
+  }
+
+  std::istringstream input{R"(.databases
+USE company;
+.tables
+SELECT name FROM employees WHERE id >= 2;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell reopened{input, output, directory.path()};
+
+  ASSERT_EQ(reopened.run(), 0) << output.str();
+  const std::string result = output.str();
+  EXPECT_NE(result.find("company"), std::string::npos);
+  EXPECT_NE(result.find("employees"), std::string::npos);
+  EXPECT_NE(result.find("Bob"), std::string::npos) << result;
+  EXPECT_NE(result.find("1 row selected."), std::string::npos) << result;
+  EXPECT_EQ(result.find("Alice"), std::string::npos) << result;
 }

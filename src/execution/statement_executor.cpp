@@ -80,7 +80,11 @@ bool matches(const Value& left, sql::ComparisonOperator operation,
 
 StatementExecutor::StatementExecutor(catalog::Catalog& catalog,
                                      storage::InMemoryStorage& storage)
-    : catalog_(catalog), storage_(storage) {}
+    : catalog_(catalog), in_memory_storage_(&storage) {}
+
+StatementExecutor::StatementExecutor(catalog::Catalog& catalog,
+                                     storage::DiskStorage& storage)
+    : catalog_(catalog), disk_storage_(&storage) {}
 
 ExecutionResult StatementExecutor::execute(const sql::Statement& statement) {
   return std::visit(
@@ -107,8 +111,19 @@ ExecutionResult StatementExecutor::execute(const sql::Statement& statement) {
 
 ExecutionResult StatementExecutor::execute_create_database(
     const sql::CreateDatabaseStatement& statement) {
-  return from_catalog_result(catalog_.create_database(statement.name),
-                             "Database '" + statement.name + "' created.");
+  auto result = catalog_.create_database(statement.name);
+  if (result.has_value()) {
+    return {.success = false, .message = std::move(result->message)};
+  }
+  if (disk_storage_ != nullptr) {
+    const auto stored = disk_storage_->create_database(statement.name);
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&stored)) {
+      return {.success = false, .message = storage_error->message};
+    }
+  }
+  return {.success = true,
+          .message = "Database '" + statement.name + "' created."};
 }
 
 ExecutionResult StatementExecutor::execute_use_database(
@@ -135,7 +150,15 @@ ExecutionResult StatementExecutor::execute_create_table(
     return {.success = false,
             .message = "internal error while creating table storage"};
   }
-  storage_.create_table(*database, *schema);
+  if (disk_storage_ != nullptr) {
+    const auto stored = disk_storage_->create_table(*database, *schema);
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&stored)) {
+      return {.success = false, .message = storage_error->message};
+    }
+  } else {
+    in_memory_storage_->create_table(*database, *schema);
+  }
   return {.success = true,
           .message = "Table '" + statement.name + "' created."};
 }
@@ -151,20 +174,29 @@ ExecutionResult StatementExecutor::execute_insert(
     return {.success = false,
             .message = "table '" + statement.table_name + "' does not exist"};
   }
-  storage::InMemoryTable* const table =
-      storage_.find_table(*database, statement.table_name);
-  if (table == nullptr) {
-    return {.success = false, .message = "table storage is unavailable"};
-  }
-
   std::vector<Value> values;
   values.reserve(statement.values.size());
   for (const auto& literal : statement.values) {
     values.push_back(value_from_literal(literal));
   }
-  if (auto error = table->insert(storage::Row{std::move(values)});
-      error.has_value()) {
-    return {.success = false, .message = std::move(error->message)};
+  storage::Row row{std::move(values)};
+  if (disk_storage_ != nullptr) {
+    const auto inserted =
+        disk_storage_->insert(*database, statement.table_name, std::move(row));
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&inserted)) {
+      return {.success = false, .message = storage_error->message};
+    }
+  } else {
+    storage::InMemoryTable* const table =
+        in_memory_storage_->find_table(*database, statement.table_name);
+    if (table == nullptr) {
+      return {.success = false, .message = "table storage is unavailable"};
+    }
+    if (auto validation = table->insert(std::move(row));
+        validation.has_value()) {
+      return {.success = false, .message = std::move(validation->message)};
+    }
   }
   return {.success = true, .message = "1 row inserted."};
 }
@@ -176,14 +208,26 @@ ExecutionResult StatementExecutor::execute_select(
     return {.success = false,
             .message = "no database selected; use USE <database> first"};
   }
-  if (catalog_.find_table(statement.table_name) == nullptr) {
+  const catalog::TableSchema* const schema =
+      catalog_.find_table(statement.table_name);
+  if (schema == nullptr) {
     return {.success = false,
             .message = "table '" + statement.table_name + "' does not exist"};
   }
-  const storage::InMemoryTable* const table =
-      storage_.find_table(*database, statement.table_name);
-  if (table == nullptr) {
-    return {.success = false, .message = "table storage is unavailable"};
+  std::vector<storage::Row> disk_rows;
+  const storage::InMemoryTable* table = nullptr;
+  if (disk_storage_ != nullptr) {
+    auto scanned = disk_storage_->scan(*database, statement.table_name);
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&scanned)) {
+      return {.success = false, .message = storage_error->message};
+    }
+    disk_rows = std::get<std::vector<storage::Row>>(std::move(scanned));
+  } else {
+    table = in_memory_storage_->find_table(*database, statement.table_name);
+    if (table == nullptr) {
+      return {.success = false, .message = "table storage is unavailable"};
+    }
   }
 
   QueryResult query;
@@ -199,17 +243,17 @@ ExecutionResult StatementExecutor::execute_select(
               std::get_if<sql::ComparisonExpression>(&expression.node)) {
         const std::string filter_name = normalize(comparison->column_name);
         const auto column = std::find_if(
-            table->schema().columns.begin(), table->schema().columns.end(),
+            schema->columns.begin(), schema->columns.end(),
             [&filter_name](const catalog::ColumnSchema& candidate) {
               return normalize(candidate.name) == filter_name;
             });
-        if (column == table->schema().columns.end()) {
+        if (column == schema->columns.end()) {
           binding_error =
               "column '" + comparison->column_name + "' does not exist";
           return std::nullopt;
         }
         const auto index = static_cast<std::size_t>(
-            std::distance(table->schema().columns.begin(), column));
+            std::distance(schema->columns.begin(), column));
         const Value comparison_value = value_from_literal(comparison->value);
         if (comparison_value.type() != column->type.kind) {
           binding_error = "column '" + column->name + "': expected " +
@@ -262,8 +306,8 @@ ExecutionResult StatementExecutor::execute_select(
 
   std::vector<std::size_t> column_indexes;
   if (statement.columns.empty()) {
-    column_indexes.reserve(table->schema().columns.size());
-    for (std::size_t index = 0; index < table->schema().columns.size(); ++index) {
+    column_indexes.reserve(schema->columns.size());
+    for (std::size_t index = 0; index < schema->columns.size(); ++index) {
       column_indexes.push_back(index);
     }
   } else {
@@ -272,16 +316,16 @@ ExecutionResult StatementExecutor::execute_select(
     for (const auto& selected : statement.columns) {
       const std::string selected_name = normalize(selected.name);
       const auto column = std::find_if(
-          table->schema().columns.begin(), table->schema().columns.end(),
+          schema->columns.begin(), schema->columns.end(),
           [&selected_name](const catalog::ColumnSchema& candidate) {
             return normalize(candidate.name) == selected_name;
           });
-      if (column == table->schema().columns.end()) {
+      if (column == schema->columns.end()) {
         return {.success = false,
                 .message = "column '" + selected.name + "' does not exist"};
       }
       const auto index = static_cast<std::size_t>(
-          std::distance(table->schema().columns.begin(), column));
+          std::distance(schema->columns.begin(), column));
       if (!selected_indexes.insert(index).second) {
         return {.success = false,
                 .message = "column '" + selected.name +
@@ -293,10 +337,18 @@ ExecutionResult StatementExecutor::execute_select(
 
   query.columns.reserve(column_indexes.size());
   for (const std::size_t index : column_indexes) {
-    query.columns.push_back(table->schema().columns[index].name);
+    query.columns.push_back(schema->columns[index].name);
   }
 
-  RowSet rows = SequentialScanOperator{*table}.execute();
+  RowSet rows;
+  if (table != nullptr) {
+    rows = SequentialScanOperator{*table}.execute();
+  } else {
+    rows.reserve(disk_rows.size());
+    for (const auto& row : disk_rows) {
+      rows.emplace_back(std::cref(row));
+    }
+  }
   if (predicate.has_value()) {
     rows = FilterOperator{std::move(rows), std::move(*predicate)}.execute();
   }

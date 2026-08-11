@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <iomanip>
 #include <istream>
 #include <ostream>
@@ -68,8 +69,46 @@ void print_query(std::ostream& output,
 Shell::Shell(std::istream& input, std::ostream& output)
     : input_(input), output_(output) {}
 
+Shell::Shell(std::istream& input, std::ostream& output,
+             std::filesystem::path data_directory)
+    : input_(input),
+      output_(output),
+      disk_storage_(
+          std::make_unique<storage::DiskStorage>(std::move(data_directory))) {
+  const auto opened = disk_storage_->open();
+  if (const auto* error = std::get_if<storage::DiskStorageError>(&opened)) {
+    startup_error_ = error->message;
+    return;
+  }
+  for (const auto& stored : disk_storage_->catalogs()) {
+    if (auto result = catalog_.create_database(stored.database_name);
+        result.has_value()) {
+      startup_error_ = result->message;
+      return;
+    }
+    if (auto result = catalog_.use_database(stored.database_name);
+        result.has_value()) {
+      startup_error_ = result->message;
+      return;
+    }
+    for (const auto& table : stored.tables) {
+      if (auto result = catalog_.create_table(table.schema.name,
+                                              table.schema.columns);
+          result.has_value()) {
+        startup_error_ = result->message;
+        return;
+      }
+    }
+  }
+  catalog_.clear_selection();
+}
+
 int Shell::run() {
   output_ << kName << " v" << kVersion << '\n';
+  if (!startup_error_.empty()) {
+    output_ << "Error opening data directory: " << startup_error_ << '\n';
+    return 1;
+  }
 
   std::string line;
   std::string pending_sql;
@@ -112,9 +151,13 @@ void Shell::execute_sql(const std::string& sql_text) {
     return;
   }
 
-  execution::StatementExecutor executor{catalog_, storage_};
-  const auto result =
-      executor.execute(std::get<sql::Statement>(parse_result));
+  const auto& statement = std::get<sql::Statement>(parse_result);
+  const auto result = disk_storage_ != nullptr
+                          ? execution::StatementExecutor{catalog_,
+                                                         *disk_storage_}
+                                .execute(statement)
+                          : execution::StatementExecutor{catalog_, storage_}
+                                .execute(statement);
   if (!result.success) {
     output_ << "Error: ";
   }

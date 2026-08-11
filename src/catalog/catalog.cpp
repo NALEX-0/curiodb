@@ -52,6 +52,8 @@ CatalogResult Catalog::use_database(std::string_view name) {
   return std::nullopt;
 }
 
+void Catalog::clear_selection() noexcept { active_database_key_.reset(); }
+
 CatalogResult Catalog::create_table(std::string name,
                                     std::vector<ColumnSchema> columns) {
   Database* const database = selected_database();
@@ -152,4 +154,3 @@ Catalog::Database* Catalog::selected_database() {
 }
 
 }  // namespace curiodb::catalog
-

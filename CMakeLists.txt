@@ -18,6 +18,7 @@ include(CompilerWarnings)
 
 add_library(curiodb_core
   src/catalog/catalog.cpp
+  src/catalog/catalog_storage.cpp
   src/cli/shell.cpp
   src/execution/operators.cpp
   src/execution/statement_executor.cpp
@@ -28,6 +29,7 @@ add_library(curiodb_core
   src/storage/in_memory_table.cpp
   src/storage/in_memory_storage.cpp
   src/storage/disk_manager.cpp
+  src/storage/disk_storage.cpp
   src/storage/row_validation.cpp
   src/storage/serialization.cpp
   src/storage/slotted_page.cpp

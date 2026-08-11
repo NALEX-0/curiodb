@@ -50,6 +50,7 @@ class Catalog {
  public:
   [[nodiscard]] CatalogResult create_database(std::string name);
   [[nodiscard]] CatalogResult use_database(std::string_view name);
+  void clear_selection() noexcept;
   [[nodiscard]] CatalogResult create_table(
       std::string name, std::vector<ColumnSchema> columns);
 
@@ -72,4 +73,3 @@ class Catalog {
 };
 
 }  // namespace curiodb::catalog
-
