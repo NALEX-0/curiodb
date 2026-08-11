@@ -27,6 +27,7 @@ add_library(curiodb_core
   src/sql/token.cpp
   src/storage/in_memory_table.cpp
   src/storage/in_memory_storage.cpp
+  src/storage/disk_manager.cpp
   src/storage/row_validation.cpp
   src/storage/serialization.cpp
   src/storage/slotted_page.cpp
