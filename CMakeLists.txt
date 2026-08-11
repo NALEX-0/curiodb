@@ -29,6 +29,7 @@ add_library(curiodb_core
   src/storage/in_memory_storage.cpp
   src/storage/row_validation.cpp
   src/storage/serialization.cpp
+  src/storage/slotted_page.cpp
   src/types/value.cpp
 )
 
