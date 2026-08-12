@@ -36,4 +36,17 @@ std::size_t InMemoryTable::delete_where(
   return original_size - rows_.size();
 }
 
+std::size_t InMemoryTable::update_where(
+    const std::function<bool(const Row&)>& predicate,
+    std::size_t column_index, const Value& value) {
+  std::size_t count = 0;
+  for (auto& row : rows_) {
+    if (predicate(row)) {
+      row.set(column_index, value);
+      ++count;
+    }
+  }
+  return count;
+}
+
 }  // namespace curiodb::storage

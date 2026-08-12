@@ -23,6 +23,8 @@ class InMemoryTable {
 
   [[nodiscard]] RowValidationResult insert(Row row);
   std::size_t delete_where(const std::function<bool(const Row&)>& predicate);
+  std::size_t update_where(const std::function<bool(const Row&)>& predicate,
+                           std::size_t column_index, const Value& value);
 
  private:
   catalog::TableSchema schema_;

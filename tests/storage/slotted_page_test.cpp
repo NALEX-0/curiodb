@@ -161,5 +161,36 @@ TEST(SlottedPageTest, TombstonesDeletedRecordWithoutChangingOtherSlots) {
   EXPECT_EQ(std::get<std::span<const std::byte>>(retained).size(), 1U);
 }
 
+TEST(SlottedPageTest, UpdatesRecordInPlaceWhenReplacementFits) {
+  SlottedPage page;
+  const std::array original{std::byte{1}, std::byte{2}, std::byte{3}};
+  const std::array replacement{std::byte{8}, std::byte{9}};
+  const SlotId slot = std::get<SlotId>(page.insert_record(original));
+
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(
+      page.update_record(slot, replacement)));
+  const auto record = page.read_record(slot);
+  ASSERT_TRUE(std::holds_alternative<std::span<const std::byte>>(record));
+  const auto bytes = std::get<std::span<const std::byte>>(record);
+  EXPECT_EQ(bytes.size(), 2U);
+  EXPECT_EQ(bytes[0], std::byte{8});
+}
+
+TEST(SlottedPageTest, RejectsGrowingReplacementWithoutChangingRecord) {
+  SlottedPage page;
+  const std::array original{std::byte{1}};
+  const std::array replacement{std::byte{8}, std::byte{9}};
+  const SlotId slot = std::get<SlotId>(page.insert_record(original));
+
+  const auto result = page.update_record(slot, replacement);
+
+  ASSERT_TRUE(std::holds_alternative<PageError>(result));
+  EXPECT_EQ(std::get<PageError>(result).code, PageErrorCode::PageFull);
+  const auto record = std::get<std::span<const std::byte>>(
+      page.read_record(slot));
+  EXPECT_EQ(record.size(), 1U);
+  EXPECT_EQ(record[0], std::byte{1});
+}
+
 }  // namespace
 }  // namespace curiodb::storage

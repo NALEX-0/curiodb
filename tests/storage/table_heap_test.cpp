@@ -181,5 +181,34 @@ TEST(TableHeapTest, DeletesRowAndSkipsTombstoneAfterReopen) {
   EXPECT_EQ(rows[0].row, make_row(2, "Bob"));
 }
 
+TEST(TableHeapTest, UpdatesSmallRowWithoutChangingId) {
+  TemporaryHeapFile file;
+  auto disk = expect_manager(open_disk_manager(file.path()));
+  TableHeap heap{*disk};
+  const RowId id = expect_row_id(heap.insert(make_row(1, "Alice")));
+
+  const auto updated = heap.update(id, make_row(1, "Amy"));
+
+  ASSERT_TRUE(std::holds_alternative<RowId>(updated));
+  EXPECT_EQ(std::get<RowId>(updated), id);
+  EXPECT_EQ(std::get<Row>(heap.fetch(id)), make_row(1, "Amy"));
+}
+
+TEST(TableHeapTest, RelocatesGrowingRowAndTombstonesOldId) {
+  TemporaryHeapFile file;
+  auto disk = expect_manager(open_disk_manager(file.path()));
+  TableHeap heap{*disk};
+  const RowId old_id = expect_row_id(heap.insert(make_row(1, "A")));
+
+  const auto updated = heap.update(old_id, make_row(1, std::string(1000, 'x')));
+
+  ASSERT_TRUE(std::holds_alternative<RowId>(updated));
+  const RowId new_id = std::get<RowId>(updated);
+  EXPECT_NE(new_id, old_id);
+  EXPECT_TRUE(std::holds_alternative<TableHeapError>(heap.fetch(old_id)));
+  EXPECT_EQ(std::get<Row>(heap.fetch(new_id)),
+            make_row(1, std::string(1000, 'x')));
+}
+
 }  // namespace
 }  // namespace curiodb::storage

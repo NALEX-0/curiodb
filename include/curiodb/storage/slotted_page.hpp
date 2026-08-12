@@ -40,6 +40,7 @@ using InsertRecordResult = std::variant<SlotId, PageError>;
 using ReadRecordResult =
     std::variant<std::span<const std::byte>, PageError>;
 using DeleteRecordResult = std::variant<std::monostate, PageError>;
+using UpdateRecordResult = std::variant<std::monostate, PageError>;
 
 class SlottedPage {
  public:
@@ -53,6 +54,8 @@ class SlottedPage {
       std::span<const std::byte> record);
   [[nodiscard]] ReadRecordResult read_record(SlotId slot) const;
   [[nodiscard]] DeleteRecordResult delete_record(SlotId slot);
+  [[nodiscard]] UpdateRecordResult update_record(
+      SlotId slot, std::span<const std::byte> record);
 
  private:
   struct LoadedPageTag {};

@@ -51,6 +51,16 @@ TEST(LexerTest, RecognizesDeleteStatementKeywords) {
   EXPECT_EQ(tokens[3].type, TokenType::Where);
 }
 
+TEST(LexerTest, RecognizesUpdateStatementKeywords) {
+  const auto tokens =
+      Lexer{"UPDATE employees SET name = 'Bob' WHERE id = 1;"}.tokenize();
+
+  ASSERT_GE(tokens.size(), 7U);
+  EXPECT_EQ(tokens[0].type, TokenType::Update);
+  EXPECT_EQ(tokens[2].type, TokenType::Set);
+  EXPECT_EQ(tokens[6].type, TokenType::Where);
+}
+
 TEST(LexerTest, KeepsNonKeywordsAsIdentifiers) {
   const auto tokens = Lexer{"employees employee_2 _internal"}.tokenize();
 

@@ -46,6 +46,8 @@ TokenType identifier_type(std::string_view text) {
       {"VALUES", TokenType::Values},
       {"SELECT", TokenType::Select},
       {"DELETE", TokenType::Delete},
+      {"UPDATE", TokenType::Update},
+      {"SET", TokenType::Set},
       {"FROM", TokenType::From},
       {"WHERE", TokenType::Where},
       {"AND", TokenType::And},

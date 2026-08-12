@@ -17,6 +17,7 @@
 
 #include "curiodb/execution/operators.hpp"
 #include "curiodb/storage/row.hpp"
+#include "curiodb/storage/row_validation.hpp"
 #include "curiodb/types/value.hpp"
 
 namespace curiodb::execution {
@@ -161,8 +162,11 @@ ExecutionResult StatementExecutor::execute(const sql::Statement& statement) {
         } else if constexpr (std::is_same_v<StatementType,
                                             sql::SelectStatement>) {
           return execute_select(value);
-        } else {
+        } else if constexpr (std::is_same_v<StatementType,
+                                            sql::DeleteStatement>) {
           return execute_delete(value);
+        } else {
+          return execute_update(value);
         }
       },
       statement);
@@ -469,6 +473,90 @@ ExecutionResult StatementExecutor::execute_delete(
   return {.success = true,
           .message = std::to_string(count) +
                      (count == 1 ? " row deleted." : " rows deleted.")};
+}
+
+ExecutionResult StatementExecutor::execute_update(
+    const sql::UpdateStatement& statement) {
+  const auto database = catalog_.active_database();
+  if (!database.has_value()) {
+    return {.success = false,
+            .message = "no database selected; use USE <database> first"};
+  }
+  const catalog::TableSchema* const schema =
+      catalog_.find_table(statement.table_name);
+  if (schema == nullptr) {
+    return {.success = false,
+            .message = "table '" + statement.table_name + "' does not exist"};
+  }
+  const std::string update_name = normalize(statement.column_name);
+  const auto column = std::find_if(
+      schema->columns.begin(), schema->columns.end(),
+      [&update_name](const catalog::ColumnSchema& candidate) {
+        return normalize(candidate.name) == update_name;
+      });
+  if (column == schema->columns.end()) {
+    return {.success = false,
+            .message = "column '" + statement.column_name +
+                       "' does not exist"};
+  }
+  const std::size_t column_index = static_cast<std::size_t>(
+      std::distance(schema->columns.begin(), column));
+  const Value value = value_from_literal(statement.value);
+  storage::Row validation_row;
+  std::vector<Value> validation_values;
+  validation_values.reserve(schema->columns.size());
+  for (const auto& candidate : schema->columns) {
+    switch (candidate.type.kind) {
+      case DataTypeKind::Integer:
+        validation_values.emplace_back(std::int64_t{0});
+        break;
+      case DataTypeKind::Double:
+        validation_values.emplace_back(0.0);
+        break;
+      case DataTypeKind::Varchar:
+        validation_values.emplace_back(std::string{});
+        break;
+    }
+  }
+  validation_values[column_index] = value;
+  validation_row = storage::Row{std::move(validation_values)};
+  if (const auto validation = storage::validate_row(*schema, validation_row);
+      validation.has_value()) {
+    return {.success = false, .message = validation->message};
+  }
+
+  FilterOperator::Predicate predicate = [](const storage::Row&) {
+    return true;
+  };
+  if (statement.where.has_value()) {
+    std::string binding_error;
+    auto bound = bind_predicate(*statement.where, *schema, binding_error);
+    if (!bound.has_value()) {
+      return {.success = false, .message = std::move(binding_error)};
+    }
+    predicate = std::move(*bound);
+  }
+
+  std::size_t count = 0;
+  if (disk_storage_ != nullptr) {
+    const auto updated = disk_storage_->update_where(
+        *database, statement.table_name, predicate, column_index, value);
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&updated)) {
+      return {.success = false, .message = storage_error->message};
+    }
+    count = std::get<std::size_t>(updated);
+  } else {
+    storage::InMemoryTable* const table =
+        in_memory_storage_->find_table(*database, statement.table_name);
+    if (table == nullptr) {
+      return {.success = false, .message = "table storage is unavailable"};
+    }
+    count = table->update_where(predicate, column_index, value);
+  }
+  return {.success = true,
+          .message = std::to_string(count) +
+                     (count == 1 ? " row updated." : " rows updated.")};
 }
 
 }  // namespace curiodb::execution

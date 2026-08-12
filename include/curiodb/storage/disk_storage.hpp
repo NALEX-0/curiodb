@@ -25,6 +25,7 @@ struct DiskStorageError {
 using DiskStorageResult = std::variant<std::monostate, DiskStorageError>;
 using DiskRowsResult = std::variant<std::vector<Row>, DiskStorageError>;
 using DiskDeleteResult = std::variant<std::size_t, DiskStorageError>;
+using DiskUpdateResult = std::variant<std::size_t, DiskStorageError>;
 
 class DiskStorage {
  public:
@@ -42,6 +43,10 @@ class DiskStorage {
   [[nodiscard]] DiskDeleteResult delete_where(
       std::string_view database, std::string_view table,
       const std::function<bool(const Row&)>& predicate);
+  [[nodiscard]] DiskUpdateResult update_where(
+      std::string_view database, std::string_view table,
+      const std::function<bool(const Row&)>& predicate,
+      std::size_t column_index, const Value& value);
 
  private:
   struct DatabaseState {

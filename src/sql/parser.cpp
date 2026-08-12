@@ -52,10 +52,12 @@ ParseResult Parser::parse_statement() {
     statement = parse_select();
   } else if (check(TokenType::Delete)) {
     statement = parse_delete();
+  } else if (check(TokenType::Update)) {
+    statement = parse_update();
   } else if (check(TokenType::Invalid)) {
     report_error(current(), "invalid token " + found_token(current()));
   } else {
-    report_error(current(), "expected CREATE, USE, INSERT, SELECT, or DELETE, found " +
+    report_error(current(), "expected CREATE, USE, INSERT, SELECT, DELETE, or UPDATE, found " +
                                 found_token(current()));
   }
 
@@ -276,6 +278,37 @@ std::optional<Statement> Parser::parse_delete() {
     }
   }
   return Statement{DeleteStatement{.table_name = table->lexeme,
+                                   .where = std::move(where),
+                                   .location = location}};
+}
+
+std::optional<Statement> Parser::parse_update() {
+  const SourceLocation location = advance().location;
+  const auto table =
+      consume(TokenType::Identifier, "expected table name after UPDATE");
+  if (!table.has_value() || !consume(TokenType::Set, "expected SET after table name")) {
+    return std::nullopt;
+  }
+  const auto column =
+      consume(TokenType::Identifier, "expected column name after SET");
+  if (!column.has_value() ||
+      !consume(TokenType::Equal, "expected '=' after column name")) {
+    return std::nullopt;
+  }
+  auto value = parse_literal();
+  if (!value.has_value()) {
+    return std::nullopt;
+  }
+  std::optional<Expression> where;
+  if (match(TokenType::Where)) {
+    where = parse_or_expression();
+    if (!where.has_value()) {
+      return std::nullopt;
+    }
+  }
+  return Statement{UpdateStatement{.table_name = table->lexeme,
+                                   .column_name = column->lexeme,
+                                   .value = std::move(*value),
                                    .where = std::move(where),
                                    .location = location}};
 }

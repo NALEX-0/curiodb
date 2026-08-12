@@ -26,6 +26,9 @@ class Row {
   [[nodiscard]] const std::vector<Value>& values() const noexcept {
     return values_;
   }
+  void set(std::size_t index, Value value) {
+    values_.at(index) = std::move(value);
+  }
 
   [[nodiscard]] friend bool operator==(const Row&, const Row&) = default;
 
@@ -34,4 +37,3 @@ class Row {
 };
 
 }  // namespace curiodb::storage
-

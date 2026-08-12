@@ -76,7 +76,7 @@ TEST(ParserTest, RejectsUnsupportedStatement) {
   const auto& error = expect_error(parse("employees;"));
 
   EXPECT_EQ(error.message,
-            "expected CREATE, USE, INSERT, SELECT, or DELETE, found 'employees'");
+            "expected CREATE, USE, INSERT, SELECT, DELETE, or UPDATE, found 'employees'");
   EXPECT_EQ(error.location, (SourceLocation{0, 1, 1}));
 }
 
@@ -278,6 +278,31 @@ TEST(ParserTest, ParsesDeleteWithoutWhere) {
   const auto& statement =
       std::get<DeleteStatement>(std::get<Statement>(result));
   EXPECT_EQ(statement.table_name, "employees");
+  EXPECT_FALSE(statement.where.has_value());
+}
+
+TEST(ParserTest, ParsesUpdateWithWhere) {
+  auto result = Parser{Lexer{
+      "UPDATE employees SET name = 'Robert' WHERE id = 2;"}
+                           .tokenize()}
+                    .parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& statement =
+      std::get<UpdateStatement>(std::get<Statement>(result));
+  EXPECT_EQ(statement.table_name, "employees");
+  EXPECT_EQ(statement.column_name, "name");
+  EXPECT_EQ(statement.value.value, LiteralValue{std::string{"Robert"}});
+  EXPECT_TRUE(statement.where.has_value());
+}
+
+TEST(ParserTest, ParsesUpdateWithoutWhere) {
+  auto result = Parser{Lexer{"UPDATE employees SET salary = 1.5;"}.tokenize()}
+                    .parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& statement =
+      std::get<UpdateStatement>(std::get<Statement>(result));
   EXPECT_FALSE(statement.where.has_value());
 }
 

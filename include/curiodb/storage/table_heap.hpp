@@ -46,6 +46,7 @@ using HeapInsertResult = std::variant<RowId, TableHeapError>;
 using HeapFetchResult = std::variant<Row, TableHeapError>;
 using HeapScanResult = std::variant<std::vector<HeapRow>, TableHeapError>;
 using HeapDeleteResult = std::variant<std::monostate, TableHeapError>;
+using HeapUpdateResult = std::variant<RowId, TableHeapError>;
 
 class TableHeap {
  public:
@@ -57,6 +58,7 @@ class TableHeap {
   [[nodiscard]] HeapFetchResult fetch(RowId row_id);
   [[nodiscard]] HeapScanResult scan();
   [[nodiscard]] HeapDeleteResult delete_row(RowId row_id);
+  [[nodiscard]] HeapUpdateResult update(RowId row_id, const Row& row);
   [[nodiscard]] DiskResult flush();
 
  private:

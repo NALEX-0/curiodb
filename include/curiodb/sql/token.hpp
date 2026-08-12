@@ -41,6 +41,8 @@ enum class TokenType {
   Values,
   Select,
   Delete,
+  Update,
+  Set,
   From,
   Where,
   And,

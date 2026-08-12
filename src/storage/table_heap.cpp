@@ -169,6 +169,47 @@ HeapDeleteResult TableHeap::delete_row(RowId row_id) {
   return std::monostate{};
 }
 
+HeapUpdateResult TableHeap::update(RowId row_id, const Row& row) {
+  if (std::find(page_ids_.begin(), page_ids_.end(), row_id.page_id) ==
+      page_ids_.end()) {
+    return heap_error(TableHeapErrorCode::InvalidRowId,
+                      "row page does not belong to this table");
+  }
+  auto serialization = serialize_row(row);
+  if (const auto* error = std::get_if<SerializationError>(&serialization)) {
+    return from_serialization_error(*error);
+  }
+  auto loaded = load_page(row_id.page_id);
+  if (const auto* error = std::get_if<TableHeapError>(&loaded)) {
+    return *error;
+  }
+  auto page = std::move(std::get<std::unique_ptr<SlottedPage>>(loaded));
+  const auto replaced = page->update_record(
+      row_id.slot_id, std::get<SerializedBytes>(serialization));
+  if (std::holds_alternative<std::monostate>(replaced)) {
+    const auto written =
+        disk_manager_.write_page(row_id.page_id, page->bytes());
+    if (const auto* error = std::get_if<DiskError>(&written)) {
+      return from_disk_error(*error);
+    }
+    return row_id;
+  }
+  const auto& page_error = std::get<PageError>(replaced);
+  if (page_error.code != PageErrorCode::PageFull) {
+    return heap_error(TableHeapErrorCode::InvalidRowId, page_error.message);
+  }
+  auto inserted = insert(row);
+  if (const auto* error = std::get_if<TableHeapError>(&inserted)) {
+    return *error;
+  }
+  const RowId new_id = std::get<RowId>(inserted);
+  const auto deleted = delete_row(row_id);
+  if (const auto* error = std::get_if<TableHeapError>(&deleted)) {
+    return *error;
+  }
+  return new_id;
+}
+
 DiskResult TableHeap::flush() { return disk_manager_.flush(); }
 
 std::variant<std::unique_ptr<SlottedPage>, TableHeapError>

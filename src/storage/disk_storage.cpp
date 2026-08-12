@@ -220,6 +220,45 @@ DiskDeleteResult DiskStorage::delete_where(
   return count;
 }
 
+DiskUpdateResult DiskStorage::update_where(
+    std::string_view database, std::string_view table,
+    const std::function<bool(const Row&)>& predicate,
+    std::size_t column_index, const Value& value) {
+  DatabaseState* const state = find_database(database);
+  if (state == nullptr) {
+    return error("database storage is unavailable");
+  }
+  catalog::StoredTable* const stored_table = find_table(*state, table);
+  if (stored_table == nullptr) {
+    return error("table storage is unavailable");
+  }
+  TableHeap heap{*state->disk, stored_table->page_ids};
+  auto scanned = heap.scan();
+  if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
+    return wrapped_error(*scan_error);
+  }
+  std::size_t count = 0;
+  for (auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
+    if (!predicate(heap_row.row)) {
+      continue;
+    }
+    heap_row.row.set(column_index, value);
+    const auto updated = heap.update(heap_row.id, heap_row.row);
+    if (const auto* update_error = std::get_if<TableHeapError>(&updated)) {
+      return wrapped_error(*update_error);
+    }
+    ++count;
+  }
+  stored_table->page_ids.assign(heap.page_ids().begin(), heap.page_ids().end());
+  const auto metadata = catalog::store_catalog(*state->disk, state->catalog);
+  if (const auto* metadata_error =
+          std::get_if<catalog::CatalogStorageError>(&metadata)) {
+    return wrapped_error(*metadata_error);
+  }
+  rebuild_catalog_view();
+  return count;
+}
+
 void DiskStorage::rebuild_catalog_view() {
   catalog_view_.clear();
   catalog_view_.reserve(databases_.size());

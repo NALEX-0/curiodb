@@ -194,6 +194,26 @@ DeleteRecordResult SlottedPage::delete_record(SlotId slot) {
   return std::monostate{};
 }
 
+UpdateRecordResult SlottedPage::update_record(
+    SlotId slot, std::span<const std::byte> record) {
+  if (slot.value >= slot_count()) {
+    return PageError{PageErrorCode::InvalidSlot, "slot does not exist"};
+  }
+  const std::size_t entry = slot_offset(slot);
+  const std::size_t offset = read_u16(bytes_, entry);
+  const std::size_t old_length = read_u16(bytes_, entry + 2);
+  if (old_length == 0) {
+    return PageError{PageErrorCode::DeletedRecord, "record has been deleted"};
+  }
+  if (record.size() > old_length) {
+    return PageError{PageErrorCode::PageFull,
+                     "replacement does not fit in the existing slot"};
+  }
+  std::copy(record.begin(), record.end(), bytes_.begin() + offset);
+  write_u16(bytes_, entry + 2, static_cast<std::uint16_t>(record.size()));
+  return std::monostate{};
+}
+
 PageLoadResult load_slotted_page(PageBytes bytes) {
   auto validation = validate(bytes);
   if (const auto* error = std::get_if<PageError>(&validation)) {
