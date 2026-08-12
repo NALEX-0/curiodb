@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -21,6 +22,7 @@ class InMemoryTable {
   [[nodiscard]] std::span<const Row> rows() const noexcept;
 
   [[nodiscard]] RowValidationResult insert(Row row);
+  std::size_t delete_where(const std::function<bool(const Row&)>& predicate);
 
  private:
   catalog::TableSchema schema_;
@@ -28,4 +30,3 @@ class InMemoryTable {
 };
 
 }  // namespace curiodb::storage
-

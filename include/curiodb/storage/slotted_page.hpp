@@ -23,6 +23,7 @@ enum class PageErrorCode {
   PageFull,
   RecordTooLarge,
   InvalidSlot,
+  DeletedRecord,
   CorruptPage,
   UnsupportedVersion,
 };
@@ -38,6 +39,7 @@ struct PageError {
 using InsertRecordResult = std::variant<SlotId, PageError>;
 using ReadRecordResult =
     std::variant<std::span<const std::byte>, PageError>;
+using DeleteRecordResult = std::variant<std::monostate, PageError>;
 
 class SlottedPage {
  public:
@@ -50,6 +52,7 @@ class SlottedPage {
   [[nodiscard]] InsertRecordResult insert_record(
       std::span<const std::byte> record);
   [[nodiscard]] ReadRecordResult read_record(SlotId slot) const;
+  [[nodiscard]] DeleteRecordResult delete_record(SlotId slot);
 
  private:
   struct LoadedPageTag {};
@@ -67,4 +70,3 @@ using PageLoadResult =
 [[nodiscard]] PageLoadResult load_slotted_page(PageBytes bytes);
 
 }  // namespace curiodb::storage
-

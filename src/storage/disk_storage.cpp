@@ -186,6 +186,40 @@ DiskRowsResult DiskStorage::scan(std::string_view database,
   return rows;
 }
 
+DiskDeleteResult DiskStorage::delete_where(
+    std::string_view database, std::string_view table,
+    const std::function<bool(const Row&)>& predicate) {
+  DatabaseState* const state = find_database(database);
+  if (state == nullptr) {
+    return error("database storage is unavailable");
+  }
+  catalog::StoredTable* const stored_table = find_table(*state, table);
+  if (stored_table == nullptr) {
+    return error("table storage is unavailable");
+  }
+  TableHeap heap{*state->disk, stored_table->page_ids};
+  auto scanned = heap.scan();
+  if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
+    return wrapped_error(*scan_error);
+  }
+  std::size_t count = 0;
+  for (const auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
+    if (!predicate(heap_row.row)) {
+      continue;
+    }
+    const auto deleted = heap.delete_row(heap_row.id);
+    if (const auto* delete_error = std::get_if<TableHeapError>(&deleted)) {
+      return wrapped_error(*delete_error);
+    }
+    ++count;
+  }
+  const auto flushed = heap.flush();
+  if (const auto* flush_error = std::get_if<DiskError>(&flushed)) {
+    return wrapped_error(*flush_error);
+  }
+  return count;
+}
+
 void DiskStorage::rebuild_catalog_view() {
   catalog_view_.clear();
   catalog_view_.reserve(databases_.size());

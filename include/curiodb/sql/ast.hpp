@@ -153,8 +153,18 @@ struct SelectStatement {
       const SelectStatement&, const SelectStatement&) = default;
 };
 
+struct DeleteStatement {
+  std::string table_name;
+  std::optional<Expression> where;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const DeleteStatement&, const DeleteStatement&) = default;
+};
+
 using Statement =
     std::variant<CreateDatabaseStatement, UseDatabaseStatement,
-                 CreateTableStatement, InsertStatement, SelectStatement>;
+                 CreateTableStatement, InsertStatement, SelectStatement,
+                 DeleteStatement>;
 
 }  // namespace curiodb::sql

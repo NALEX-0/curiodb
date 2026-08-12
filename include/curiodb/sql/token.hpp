@@ -40,6 +40,7 @@ enum class TokenType {
   Into,
   Values,
   Select,
+  Delete,
   From,
   Where,
   And,

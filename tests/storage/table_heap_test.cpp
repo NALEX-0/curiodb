@@ -154,6 +154,32 @@ TEST(TableHeapTest, RejectsRowIdsFromOutsideTable) {
             TableHeapErrorCode::InvalidRowId);
 }
 
+TEST(TableHeapTest, DeletesRowAndSkipsTombstoneAfterReopen) {
+  TemporaryHeapFile file;
+  std::vector<PageId> page_ids;
+  RowId deleted_id;
+  {
+    auto disk = expect_manager(open_disk_manager(file.path()));
+    TableHeap heap{*disk};
+    deleted_id = expect_row_id(heap.insert(make_row(1, "Alice")));
+    expect_row_id(heap.insert(make_row(2, "Bob")));
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        heap.delete_row(deleted_id)));
+    page_ids.assign(heap.page_ids().begin(), heap.page_ids().end());
+  }
+
+  auto disk = expect_manager(open_disk_manager(file.path()));
+  TableHeap reopened{*disk, page_ids};
+  const auto fetched = reopened.fetch(deleted_id);
+  ASSERT_TRUE(std::holds_alternative<TableHeapError>(fetched));
+  EXPECT_EQ(std::get<TableHeapError>(fetched).code,
+            TableHeapErrorCode::InvalidRowId);
+  const auto scanned = reopened.scan();
+  ASSERT_TRUE(std::holds_alternative<std::vector<HeapRow>>(scanned));
+  const auto& rows = std::get<std::vector<HeapRow>>(scanned);
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(rows[0].row, make_row(2, "Bob"));
+}
+
 }  // namespace
 }  // namespace curiodb::storage
-

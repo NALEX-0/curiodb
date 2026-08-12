@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -23,6 +24,7 @@ struct DiskStorageError {
 
 using DiskStorageResult = std::variant<std::monostate, DiskStorageError>;
 using DiskRowsResult = std::variant<std::vector<Row>, DiskStorageError>;
+using DiskDeleteResult = std::variant<std::size_t, DiskStorageError>;
 
 class DiskStorage {
  public:
@@ -37,6 +39,9 @@ class DiskStorage {
                                          std::string_view table, Row row);
   [[nodiscard]] DiskRowsResult scan(std::string_view database,
                                     std::string_view table);
+  [[nodiscard]] DiskDeleteResult delete_where(
+      std::string_view database, std::string_view table,
+      const std::function<bool(const Row&)>& predicate);
 
  private:
   struct DatabaseState {

@@ -42,6 +42,15 @@ TEST(LexerTest, RecognizesKeywordsWithoutCaseSensitivity) {
                                     TokenType::EndOfInput}));
 }
 
+TEST(LexerTest, RecognizesDeleteStatementKeywords) {
+  const auto tokens = Lexer{"DELETE FROM employees WHERE id = 1;"}.tokenize();
+
+  ASSERT_GE(tokens.size(), 4U);
+  EXPECT_EQ(tokens[0].type, TokenType::Delete);
+  EXPECT_EQ(tokens[1].type, TokenType::From);
+  EXPECT_EQ(tokens[3].type, TokenType::Where);
+}
+
 TEST(LexerTest, KeepsNonKeywordsAsIdentifiers) {
   const auto tokens = Lexer{"employees employee_2 _internal"}.tokenize();
 

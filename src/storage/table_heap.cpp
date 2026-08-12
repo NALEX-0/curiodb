@@ -129,6 +129,9 @@ HeapScanResult TableHeap::scan() {
       const SlotId slot_id{static_cast<std::uint16_t>(index)};
       auto record = page.read_record(slot_id);
       if (const auto* error = std::get_if<PageError>(&record)) {
+        if (error->code == PageErrorCode::DeletedRecord) {
+          continue;
+        }
         return from_page_error(*error);
       }
       auto row = deserialize_row(
@@ -142,6 +145,28 @@ HeapScanResult TableHeap::scan() {
     }
   }
   return rows;
+}
+
+HeapDeleteResult TableHeap::delete_row(RowId row_id) {
+  if (std::find(page_ids_.begin(), page_ids_.end(), row_id.page_id) ==
+      page_ids_.end()) {
+    return heap_error(TableHeapErrorCode::InvalidRowId,
+                      "row page does not belong to this table");
+  }
+  auto loaded = load_page(row_id.page_id);
+  if (const auto* error = std::get_if<TableHeapError>(&loaded)) {
+    return *error;
+  }
+  auto page = std::move(std::get<std::unique_ptr<SlottedPage>>(loaded));
+  const auto deleted = page->delete_record(row_id.slot_id);
+  if (const auto* error = std::get_if<PageError>(&deleted)) {
+    return heap_error(TableHeapErrorCode::InvalidRowId, error->message);
+  }
+  const auto written = disk_manager_.write_page(row_id.page_id, page->bytes());
+  if (const auto* error = std::get_if<DiskError>(&written)) {
+    return from_disk_error(*error);
+  }
+  return std::monostate{};
 }
 
 DiskResult TableHeap::flush() { return disk_manager_.flush(); }
@@ -160,4 +185,3 @@ TableHeap::load_page(PageId page_id) {
 }
 
 }  // namespace curiodb::storage
-

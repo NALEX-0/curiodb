@@ -144,6 +144,22 @@ TEST(SlottedPageTest, StoresAndRestoresSerializedRow) {
   EXPECT_EQ(std::get<Row>(decoded), original);
 }
 
+TEST(SlottedPageTest, TombstonesDeletedRecordWithoutChangingOtherSlots) {
+  SlottedPage page;
+  const std::array first{std::byte{1}, std::byte{2}};
+  const std::array second{std::byte{3}};
+  const SlotId first_slot = std::get<SlotId>(page.insert_record(first));
+  const SlotId second_slot = std::get<SlotId>(page.insert_record(second));
+
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(
+      page.delete_record(first_slot)));
+  const auto deleted = page.read_record(first_slot);
+  ASSERT_TRUE(std::holds_alternative<PageError>(deleted));
+  EXPECT_EQ(std::get<PageError>(deleted).code, PageErrorCode::DeletedRecord);
+  const auto retained = page.read_record(second_slot);
+  ASSERT_TRUE(std::holds_alternative<std::span<const std::byte>>(retained));
+  EXPECT_EQ(std::get<std::span<const std::byte>>(retained).size(), 1U);
+}
+
 }  // namespace
 }  // namespace curiodb::storage
-

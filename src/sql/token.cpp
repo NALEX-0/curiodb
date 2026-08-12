@@ -38,6 +38,8 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "VALUES";
     case TokenType::Select:
       return "SELECT";
+    case TokenType::Delete:
+      return "DELETE";
     case TokenType::From:
       return "FROM";
     case TokenType::Where:

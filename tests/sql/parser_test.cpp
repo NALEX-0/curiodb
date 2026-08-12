@@ -76,7 +76,7 @@ TEST(ParserTest, RejectsUnsupportedStatement) {
   const auto& error = expect_error(parse("employees;"));
 
   EXPECT_EQ(error.message,
-            "expected CREATE, USE, INSERT, or SELECT, found 'employees'");
+            "expected CREATE, USE, INSERT, SELECT, or DELETE, found 'employees'");
   EXPECT_EQ(error.location, (SourceLocation{0, 1, 1}));
 }
 
@@ -252,6 +252,33 @@ TEST(ParserTest, RejectsIncompleteBooleanExpressions) {
                 parse("SELECT * FROM employees WHERE (id = 1 OR id = 2;"))
                 .message,
             "expected ')' after WHERE expression, found ';'");
+}
+
+TEST(ParserTest, ParsesDeleteWithBooleanWhereExpression) {
+  auto result = Parser{Lexer{
+      "DELETE FROM employees WHERE active = 1 AND salary >= 50000.0;"}
+                           .tokenize()}
+                    .parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& statement =
+      std::get<DeleteStatement>(std::get<Statement>(result));
+  EXPECT_EQ(statement.table_name, "employees");
+  ASSERT_TRUE(statement.where.has_value());
+  const auto& logical = *std::get<std::shared_ptr<LogicalExpression>>(
+      statement.where->node);
+  EXPECT_EQ(logical.operation, LogicalOperator::And);
+}
+
+TEST(ParserTest, ParsesDeleteWithoutWhere) {
+  auto result =
+      Parser{Lexer{"DELETE FROM employees;"}.tokenize()}.parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& statement =
+      std::get<DeleteStatement>(std::get<Statement>(result));
+  EXPECT_EQ(statement.table_name, "employees");
+  EXPECT_FALSE(statement.where.has_value());
 }
 
 }  // namespace

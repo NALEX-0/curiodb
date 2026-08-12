@@ -1,5 +1,6 @@
 #include "curiodb/storage/in_memory_table.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <span>
 #include <utility>
@@ -28,5 +29,11 @@ RowValidationResult InMemoryTable::insert(Row row) {
   return std::nullopt;
 }
 
-}  // namespace curiodb::storage
+std::size_t InMemoryTable::delete_where(
+    const std::function<bool(const Row&)>& predicate) {
+  const std::size_t original_size = rows_.size();
+  std::erase_if(rows_, predicate);
+  return original_size - rows_.size();
+}
 
+}  // namespace curiodb::storage

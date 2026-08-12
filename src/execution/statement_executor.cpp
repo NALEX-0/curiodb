@@ -76,6 +76,62 @@ bool matches(const Value& left, sql::ComparisonOperator operation,
   return false;
 }
 
+std::optional<FilterOperator::Predicate> bind_predicate(
+    const sql::Expression& expression, const catalog::TableSchema& schema,
+    std::string& binding_error) {
+  if (const auto* comparison =
+          std::get_if<sql::ComparisonExpression>(&expression.node)) {
+    const std::string filter_name = normalize(comparison->column_name);
+    const auto column = std::find_if(
+        schema.columns.begin(), schema.columns.end(),
+        [&filter_name](const catalog::ColumnSchema& candidate) {
+          return normalize(candidate.name) == filter_name;
+        });
+    if (column == schema.columns.end()) {
+      binding_error = "column '" + comparison->column_name +
+                      "' does not exist";
+      return std::nullopt;
+    }
+    const auto index = static_cast<std::size_t>(
+        std::distance(schema.columns.begin(), column));
+    const Value comparison_value = value_from_literal(comparison->value);
+    if (comparison_value.type() != column->type.kind) {
+      binding_error = "column '" + column->name + "': expected " +
+                      format_data_type(column->type) + ", received " +
+                      value_type_name(comparison_value.type());
+      return std::nullopt;
+    }
+    const sql::ComparisonOperator operation = comparison->operation;
+    return FilterOperator::Predicate{
+        [index, operation, comparison_value](const storage::Row& row) {
+          return matches(row[index], operation, comparison_value);
+        }};
+  }
+
+  const auto& logical_pointer =
+      std::get<std::shared_ptr<sql::LogicalExpression>>(expression.node);
+  if (logical_pointer == nullptr) {
+    binding_error = "invalid WHERE expression";
+    return std::nullopt;
+  }
+  auto left = bind_predicate(logical_pointer->left, schema, binding_error);
+  if (!left.has_value()) {
+    return std::nullopt;
+  }
+  auto right = bind_predicate(logical_pointer->right, schema, binding_error);
+  if (!right.has_value()) {
+    return std::nullopt;
+  }
+  if (logical_pointer->operation == sql::LogicalOperator::And) {
+    return FilterOperator::Predicate{
+        [left = std::move(*left), right = std::move(*right)](
+            const storage::Row& row) { return left(row) && right(row); }};
+  }
+  return FilterOperator::Predicate{
+      [left = std::move(*left), right = std::move(*right)](
+          const storage::Row& row) { return left(row) || right(row); }};
+}
+
 }  // namespace
 
 StatementExecutor::StatementExecutor(catalog::Catalog& catalog,
@@ -102,8 +158,11 @@ ExecutionResult StatementExecutor::execute(const sql::Statement& statement) {
         } else if constexpr (std::is_same_v<StatementType,
                                             sql::InsertStatement>) {
           return execute_insert(value);
-        } else {
+        } else if constexpr (std::is_same_v<StatementType,
+                                            sql::SelectStatement>) {
           return execute_select(value);
+        } else {
+          return execute_delete(value);
         }
       },
       statement);
@@ -362,6 +421,54 @@ ExecutionResult StatementExecutor::execute_select(
                                                       : " rows selected."),
       .query = std::move(query),
   };
+}
+
+ExecutionResult StatementExecutor::execute_delete(
+    const sql::DeleteStatement& statement) {
+  const auto database = catalog_.active_database();
+  if (!database.has_value()) {
+    return {.success = false,
+            .message = "no database selected; use USE <database> first"};
+  }
+  const catalog::TableSchema* const schema =
+      catalog_.find_table(statement.table_name);
+  if (schema == nullptr) {
+    return {.success = false,
+            .message = "table '" + statement.table_name + "' does not exist"};
+  }
+
+  FilterOperator::Predicate predicate = [](const storage::Row&) {
+    return true;
+  };
+  if (statement.where.has_value()) {
+    std::string binding_error;
+    auto bound = bind_predicate(*statement.where, *schema, binding_error);
+    if (!bound.has_value()) {
+      return {.success = false, .message = std::move(binding_error)};
+    }
+    predicate = std::move(*bound);
+  }
+
+  std::size_t count = 0;
+  if (disk_storage_ != nullptr) {
+    const auto deleted = disk_storage_->delete_where(
+        *database, statement.table_name, predicate);
+    if (const auto* storage_error =
+            std::get_if<storage::DiskStorageError>(&deleted)) {
+      return {.success = false, .message = storage_error->message};
+    }
+    count = std::get<std::size_t>(deleted);
+  } else {
+    storage::InMemoryTable* const table =
+        in_memory_storage_->find_table(*database, statement.table_name);
+    if (table == nullptr) {
+      return {.success = false, .message = "table storage is unavailable"};
+    }
+    count = table->delete_where(predicate);
+  }
+  return {.success = true,
+          .message = std::to_string(count) +
+                     (count == 1 ? " row deleted." : " rows deleted.")};
 }
 
 }  // namespace curiodb::execution

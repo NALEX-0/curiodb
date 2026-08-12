@@ -176,7 +176,22 @@ ReadRecordResult SlottedPage::read_record(SlotId slot) const {
   const std::size_t entry = slot_offset(slot);
   const std::size_t offset = read_u16(bytes_, entry);
   const std::size_t length = read_u16(bytes_, entry + 2);
+  if (length == 0) {
+    return PageError{PageErrorCode::DeletedRecord, "record has been deleted"};
+  }
   return std::span<const std::byte>{bytes_.data() + offset, length};
+}
+
+DeleteRecordResult SlottedPage::delete_record(SlotId slot) {
+  if (slot.value >= slot_count()) {
+    return PageError{PageErrorCode::InvalidSlot, "slot does not exist"};
+  }
+  const std::size_t entry = slot_offset(slot);
+  if (read_u16(bytes_, entry + 2) == 0) {
+    return PageError{PageErrorCode::DeletedRecord, "record has been deleted"};
+  }
+  write_u16(bytes_, entry + 2, 0);
+  return std::monostate{};
 }
 
 PageLoadResult load_slotted_page(PageBytes bytes) {
@@ -189,4 +204,3 @@ PageLoadResult load_slotted_page(PageBytes bytes) {
 }
 
 }  // namespace curiodb::storage
-

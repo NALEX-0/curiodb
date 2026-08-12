@@ -43,6 +43,7 @@ class Parser {
   [[nodiscard]] std::optional<Statement> parse_use();
   [[nodiscard]] std::optional<Statement> parse_insert();
   [[nodiscard]] std::optional<Statement> parse_select();
+  [[nodiscard]] std::optional<Statement> parse_delete();
   [[nodiscard]] std::optional<ColumnDefinition> parse_column();
   [[nodiscard]] std::optional<DataType> parse_data_type();
   [[nodiscard]] std::optional<Literal> parse_literal();

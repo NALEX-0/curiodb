@@ -50,10 +50,12 @@ ParseResult Parser::parse_statement() {
     statement = parse_insert();
   } else if (check(TokenType::Select)) {
     statement = parse_select();
+  } else if (check(TokenType::Delete)) {
+    statement = parse_delete();
   } else if (check(TokenType::Invalid)) {
     report_error(current(), "invalid token " + found_token(current()));
   } else {
-    report_error(current(), "expected CREATE, USE, INSERT, or SELECT, found " +
+    report_error(current(), "expected CREATE, USE, INSERT, SELECT, or DELETE, found " +
                                 found_token(current()));
   }
 
@@ -254,6 +256,28 @@ std::optional<Statement> Parser::parse_select() {
       .where = std::move(where),
       .location = location,
   }};
+}
+
+std::optional<Statement> Parser::parse_delete() {
+  const SourceLocation location = advance().location;
+  if (!consume(TokenType::From, "expected FROM after DELETE")) {
+    return std::nullopt;
+  }
+  const auto table =
+      consume(TokenType::Identifier, "expected table name after FROM");
+  if (!table.has_value()) {
+    return std::nullopt;
+  }
+  std::optional<Expression> where;
+  if (match(TokenType::Where)) {
+    where = parse_or_expression();
+    if (!where.has_value()) {
+      return std::nullopt;
+    }
+  }
+  return Statement{DeleteStatement{.table_name = table->lexeme,
+                                   .where = std::move(where),
+                                   .location = location}};
 }
 
 std::optional<ColumnDefinition> Parser::parse_column() {

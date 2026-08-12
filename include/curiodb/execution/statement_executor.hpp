@@ -46,6 +46,8 @@ class StatementExecutor {
       const sql::InsertStatement& statement);
   [[nodiscard]] ExecutionResult execute_select(
       const sql::SelectStatement& statement);
+  [[nodiscard]] ExecutionResult execute_delete(
+      const sql::DeleteStatement& statement);
 
   catalog::Catalog& catalog_;
   storage::InMemoryStorage* in_memory_storage_{nullptr};

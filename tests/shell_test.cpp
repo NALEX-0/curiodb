@@ -153,3 +153,36 @@ SELECT name FROM employees WHERE id >= 2;
   EXPECT_NE(result.find("1 row selected."), std::string::npos) << result;
   EXPECT_EQ(result.find("Alice"), std::string::npos) << result;
 }
+
+TEST(ShellTest, DeletesMatchingRowsAndPersistsDeletion) {
+  TemporaryDataDirectory directory;
+  {
+    std::istringstream input{R"(CREATE DATABASE company;
+USE company;
+CREATE TABLE employees (id INT, name VARCHAR(100));
+INSERT INTO employees VALUES (1, 'Alice');
+INSERT INTO employees VALUES (2, 'Bob');
+INSERT INTO employees VALUES (3, 'Carol');
+DELETE FROM employees WHERE id = 1 OR id >= 3;
+SELECT * FROM employees;
+.quit
+)"};
+    std::ostringstream output;
+    curiodb::cli::Shell shell{input, output, directory.path()};
+    ASSERT_EQ(shell.run(), 0) << output.str();
+    EXPECT_NE(output.str().find("2 rows deleted."), std::string::npos);
+    EXPECT_NE(output.str().find("Bob"), std::string::npos);
+  }
+
+  std::istringstream input{R"(USE company;
+SELECT * FROM employees;
+DELETE FROM employees;
+SELECT * FROM employees;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell reopened{input, output, directory.path()};
+  ASSERT_EQ(reopened.run(), 0) << output.str();
+  EXPECT_NE(output.str().find("1 row deleted."), std::string::npos);
+  EXPECT_NE(output.str().find("0 rows selected."), std::string::npos);
+}
