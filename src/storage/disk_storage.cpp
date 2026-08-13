@@ -70,8 +70,10 @@ DiskStorageResult DiskStorage::open() {
     if (databases_.contains(key)) {
       return error("database directory contains duplicate database names");
     }
+    auto buffer_pool = std::make_unique<BufferPool>(*disk, 16);
     databases_.emplace(
         key, DatabaseState{.disk = std::move(disk),
+                           .buffer_pool = std::move(buffer_pool),
                            .catalog = std::move(stored)});
   }
   if (filesystem_error) {
@@ -108,8 +110,11 @@ DiskStorageResult DiskStorage::create_database(std::string name) {
     return wrapped_error(
         std::get<catalog::CatalogStorageError>(initialized));
   }
+  auto buffer_pool = std::make_unique<BufferPool>(*disk, 16);
   databases_.emplace(
-      key, DatabaseState{.disk = std::move(disk), .catalog = std::move(stored)});
+      key, DatabaseState{.disk = std::move(disk),
+                         .buffer_pool = std::move(buffer_pool),
+                         .catalog = std::move(stored)});
   rebuild_catalog_view();
   return std::monostate{};
 }
@@ -148,7 +153,7 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
       validation.has_value()) {
     return error(validation->message);
   }
-  TableHeap heap{*state->disk, stored_table->page_ids};
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   const auto inserted = heap.insert(row);
   if (std::holds_alternative<TableHeapError>(inserted)) {
     return wrapped_error(std::get<TableHeapError>(inserted));
@@ -172,7 +177,7 @@ DiskRowsResult DiskStorage::scan(std::string_view database,
   if (stored_table == nullptr) {
     return error("table storage is unavailable");
   }
-  TableHeap heap{*state->disk, stored_table->page_ids};
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   auto scanned = heap.scan();
   if (std::holds_alternative<TableHeapError>(scanned)) {
     return wrapped_error(std::get<TableHeapError>(scanned));
@@ -197,7 +202,7 @@ DiskDeleteResult DiskStorage::delete_where(
   if (stored_table == nullptr) {
     return error("table storage is unavailable");
   }
-  TableHeap heap{*state->disk, stored_table->page_ids};
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   auto scanned = heap.scan();
   if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
     return wrapped_error(*scan_error);
@@ -232,7 +237,7 @@ DiskUpdateResult DiskStorage::update_where(
   if (stored_table == nullptr) {
     return error("table storage is unavailable");
   }
-  TableHeap heap{*state->disk, stored_table->page_ids};
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   auto scanned = heap.scan();
   if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
     return wrapped_error(*scan_error);

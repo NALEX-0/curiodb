@@ -38,6 +38,12 @@ TableHeapError from_serialization_error(const SerializationError& error) {
 TableHeap::TableHeap(DiskManager& disk_manager, std::vector<PageId> page_ids)
     : disk_manager_(disk_manager), page_ids_(std::move(page_ids)) {}
 
+TableHeap::TableHeap(BufferPool& buffer_pool, DiskManager& disk_manager,
+                     std::vector<PageId> page_ids)
+    : disk_manager_(disk_manager),
+      buffer_pool_(&buffer_pool),
+      page_ids_(std::move(page_ids)) {}
+
 std::span<const PageId> TableHeap::page_ids() const noexcept {
   return page_ids_;
 }
@@ -64,7 +70,20 @@ HeapInsertResult TableHeap::insert(const Row& row) {
     auto page = std::move(std::get<std::unique_ptr<SlottedPage>>(loaded));
     auto inserted = page->insert_record(record);
     if (const auto* slot = std::get_if<SlotId>(&inserted)) {
-      auto write = disk_manager_.write_page(page_id, page->bytes());
+      DiskResult write;
+      if (buffer_pool_ == nullptr) {
+        write = disk_manager_.write_page(page_id, page->bytes());
+      } else {
+        auto guarded = buffer_pool_->fetch_page(page_id);
+        if (const auto* error = std::get_if<BufferPoolError>(&guarded)) {
+          return heap_error(TableHeapErrorCode::DiskError, error->message);
+        }
+        auto guard = std::get<PageGuard>(std::move(guarded));
+        std::copy(page->bytes().begin(), page->bytes().end(),
+                  guard.bytes().begin());
+        guard.mark_dirty();
+        write = std::monostate{};
+      }
       if (const auto* error = std::get_if<DiskError>(&write)) {
         return from_disk_error(*error);
       }
@@ -86,7 +105,20 @@ HeapInsertResult TableHeap::insert(const Row& row) {
     return from_page_error(*error);
   }
   const SlotId slot = std::get<SlotId>(inserted);
-  auto write = disk_manager_.write_page(page_id, empty_page.bytes());
+  DiskResult write;
+  if (buffer_pool_ == nullptr) {
+    write = disk_manager_.write_page(page_id, empty_page.bytes());
+  } else {
+    auto guarded = buffer_pool_->fetch_page(page_id);
+    if (const auto* error = std::get_if<BufferPoolError>(&guarded)) {
+      return heap_error(TableHeapErrorCode::DiskError, error->message);
+    }
+    auto guard = std::get<PageGuard>(std::move(guarded));
+    std::copy(empty_page.bytes().begin(), empty_page.bytes().end(),
+              guard.bytes().begin());
+    guard.mark_dirty();
+    write = std::monostate{};
+  }
   if (const auto* error = std::get_if<DiskError>(&write)) {
     return from_disk_error(*error);
   }
@@ -162,7 +194,19 @@ HeapDeleteResult TableHeap::delete_row(RowId row_id) {
   if (const auto* error = std::get_if<PageError>(&deleted)) {
     return heap_error(TableHeapErrorCode::InvalidRowId, error->message);
   }
-  const auto written = disk_manager_.write_page(row_id.page_id, page->bytes());
+  DiskResult written;
+  if (buffer_pool_ == nullptr) {
+    written = disk_manager_.write_page(row_id.page_id, page->bytes());
+  } else {
+    auto guarded = buffer_pool_->fetch_page(row_id.page_id);
+    if (const auto* error = std::get_if<BufferPoolError>(&guarded)) {
+      return heap_error(TableHeapErrorCode::DiskError, error->message);
+    }
+    auto guard = std::get<PageGuard>(std::move(guarded));
+    std::copy(page->bytes().begin(), page->bytes().end(), guard.bytes().begin());
+    guard.mark_dirty();
+    written = std::monostate{};
+  }
   if (const auto* error = std::get_if<DiskError>(&written)) {
     return from_disk_error(*error);
   }
@@ -187,8 +231,20 @@ HeapUpdateResult TableHeap::update(RowId row_id, const Row& row) {
   const auto replaced = page->update_record(
       row_id.slot_id, std::get<SerializedBytes>(serialization));
   if (std::holds_alternative<std::monostate>(replaced)) {
-    const auto written =
-        disk_manager_.write_page(row_id.page_id, page->bytes());
+    DiskResult written;
+    if (buffer_pool_ == nullptr) {
+      written = disk_manager_.write_page(row_id.page_id, page->bytes());
+    } else {
+      auto guarded = buffer_pool_->fetch_page(row_id.page_id);
+      if (const auto* error = std::get_if<BufferPoolError>(&guarded)) {
+        return heap_error(TableHeapErrorCode::DiskError, error->message);
+      }
+      auto guard = std::get<PageGuard>(std::move(guarded));
+      std::copy(page->bytes().begin(), page->bytes().end(),
+                guard.bytes().begin());
+      guard.mark_dirty();
+      written = std::monostate{};
+    }
     if (const auto* error = std::get_if<DiskError>(&written)) {
       return from_disk_error(*error);
     }
@@ -210,15 +266,29 @@ HeapUpdateResult TableHeap::update(RowId row_id, const Row& row) {
   return new_id;
 }
 
-DiskResult TableHeap::flush() { return disk_manager_.flush(); }
+DiskResult TableHeap::flush() {
+  return buffer_pool_ == nullptr ? disk_manager_.flush()
+                                 : buffer_pool_->flush_all();
+}
 
 std::variant<std::unique_ptr<SlottedPage>, TableHeapError>
 TableHeap::load_page(PageId page_id) {
-  auto read = disk_manager_.read_page(page_id);
-  if (const auto* error = std::get_if<DiskError>(&read)) {
-    return from_disk_error(*error);
+  PageBytes bytes;
+  if (buffer_pool_ == nullptr) {
+    auto read = disk_manager_.read_page(page_id);
+    if (const auto* error = std::get_if<DiskError>(&read)) {
+      return from_disk_error(*error);
+    }
+    bytes = std::get<PageBytes>(std::move(read));
+  } else {
+    auto guarded = buffer_pool_->fetch_page(page_id);
+    if (const auto* error = std::get_if<BufferPoolError>(&guarded)) {
+      return heap_error(TableHeapErrorCode::DiskError, error->message);
+    }
+    auto guard = std::get<PageGuard>(std::move(guarded));
+    std::copy(guard.bytes().begin(), guard.bytes().end(), bytes.begin());
   }
-  auto loaded = load_slotted_page(std::get<PageBytes>(std::move(read)));
+  auto loaded = load_slotted_page(std::move(bytes));
   if (const auto* error = std::get_if<PageError>(&loaded)) {
     return from_page_error(*error);
   }

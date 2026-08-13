@@ -11,6 +11,7 @@
 
 #include "curiodb/catalog/catalog_storage.hpp"
 #include "curiodb/storage/disk_manager.hpp"
+#include "curiodb/storage/buffer_pool.hpp"
 #include "curiodb/storage/row.hpp"
 
 namespace curiodb::storage {
@@ -51,6 +52,7 @@ class DiskStorage {
  private:
   struct DatabaseState {
     std::unique_ptr<DiskManager> disk;
+    std::unique_ptr<BufferPool> buffer_pool;
     catalog::StoredCatalog catalog;
   };
 

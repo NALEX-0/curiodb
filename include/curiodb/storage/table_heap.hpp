@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "curiodb/storage/disk_manager.hpp"
+#include "curiodb/storage/buffer_pool.hpp"
 #include "curiodb/storage/row.hpp"
 #include "curiodb/storage/slotted_page.hpp"
 
@@ -52,6 +53,8 @@ class TableHeap {
  public:
   explicit TableHeap(DiskManager& disk_manager,
                      std::vector<PageId> page_ids = {});
+  explicit TableHeap(BufferPool& buffer_pool, DiskManager& disk_manager,
+                     std::vector<PageId> page_ids = {});
 
   [[nodiscard]] std::span<const PageId> page_ids() const noexcept;
   [[nodiscard]] HeapInsertResult insert(const Row& row);
@@ -66,6 +69,7 @@ class TableHeap {
   load_page(PageId page_id);
 
   DiskManager& disk_manager_;
+  BufferPool* buffer_pool_{nullptr};
   std::vector<PageId> page_ids_;
 };
 
