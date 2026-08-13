@@ -41,6 +41,7 @@ enum class TokenType {
   Primary,
   Key,
   Unique,
+  Is,
   Not,
   Null,
   Insert,

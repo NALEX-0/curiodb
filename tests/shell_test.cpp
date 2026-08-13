@@ -237,6 +237,40 @@ SELECT * FROM users;
       << output.str();
 }
 
+TEST(ShellTest, UsesIsNullPredicatesAcrossStatements) {
+  TemporaryDataDirectory directory;
+  std::istringstream input{R"(CREATE DATABASE app;
+USE app;
+CREATE TABLE contacts (id INT PRIMARY KEY, nickname VARCHAR(50), active INT);
+INSERT INTO contacts VALUES (1, NULL, 1);
+INSERT INTO contacts VALUES (2, 'Bobby', 1);
+INSERT INTO contacts VALUES (3, NULL, 0);
+EXPLAIN SELECT id FROM contacts WHERE nickname IS NULL AND active = 1;
+SELECT id FROM contacts WHERE nickname IS NULL AND active = 1;
+SELECT id FROM contacts WHERE nickname IS NOT NULL;
+EXPLAIN SELECT * FROM contacts WHERE nickname IS NULL;
+UPDATE contacts SET nickname = 'Ann' WHERE nickname IS NULL AND id = 1;
+DELETE FROM contacts WHERE nickname IS NULL;
+SELECT * FROM contacts;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell shell{input, output, directory.path()};
+
+  ASSERT_EQ(shell.run(), 0) << output.str();
+  const std::string result = output.str();
+  EXPECT_NE(result.find("condition=(nickname IS NULL AND active = 1)"),
+            std::string::npos) << result;
+  EXPECT_NE(result.find("condition=nickname IS NULL"), std::string::npos)
+      << result;
+  EXPECT_NE(result.find("SequentialScan(table=contacts)"), std::string::npos)
+      << result;
+  EXPECT_NE(result.find("1 row updated."), std::string::npos) << result;
+  EXPECT_NE(result.find("1 row deleted."), std::string::npos) << result;
+  EXPECT_NE(result.find("Ann"), std::string::npos) << result;
+  EXPECT_NE(result.find("Bobby"), std::string::npos) << result;
+}
+
 TEST(ShellTest, DeletesMatchingRowsAndPersistsDeletion) {
   TemporaryDataDirectory directory;
   {

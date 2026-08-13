@@ -499,7 +499,20 @@ std::optional<ComparisonExpression> Parser::parse_comparison() {
   }
 
   ComparisonOperator operation;
-  if (match(TokenType::Equal)) {
+  if (match(TokenType::Is)) {
+    const bool negated = match(TokenType::Not);
+    if (!consume(TokenType::Null, "expected NULL after IS or IS NOT")) {
+      return std::nullopt;
+    }
+    return ComparisonExpression{
+        .column_name = column->lexeme,
+        .operation = negated ? ComparisonOperator::IsNotNull
+                             : ComparisonOperator::IsNull,
+        .value = Literal{.value = std::monostate{},
+                         .location = column->location},
+        .location = column->location,
+    };
+  } else if (match(TokenType::Equal)) {
     operation = ComparisonOperator::Equal;
   } else if (match(TokenType::NotEqual)) {
     operation = ComparisonOperator::NotEqual;

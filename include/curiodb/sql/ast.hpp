@@ -87,6 +87,8 @@ enum class ComparisonOperator {
   LessThanOrEqual,
   GreaterThan,
   GreaterThanOrEqual,
+  IsNull,
+  IsNotNull,
 };
 
 struct ComparisonExpression {

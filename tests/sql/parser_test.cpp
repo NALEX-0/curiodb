@@ -225,6 +225,29 @@ TEST(ParserTest, ParsesWhereComparison) {
   EXPECT_EQ(comparison.location, (SourceLocation{33, 1, 34}));
 }
 
+TEST(ParserTest, ParsesIsNullAndIsNotNullPredicates) {
+  const Statement is_null_statement =
+      expect_success(parse("SELECT * FROM users WHERE nickname IS NULL;"));
+  const auto& is_null = std::get<ComparisonExpression>(
+      std::get<SelectStatement>(is_null_statement).where->node);
+  EXPECT_EQ(is_null.operation, ComparisonOperator::IsNull);
+
+  const Statement is_not_null_statement = expect_success(
+      parse("SELECT * FROM users WHERE nickname IS NOT NULL;"));
+  const auto& is_not_null = std::get<ComparisonExpression>(
+      std::get<SelectStatement>(is_not_null_statement).where->node);
+  EXPECT_EQ(is_not_null.operation, ComparisonOperator::IsNotNull);
+}
+
+TEST(ParserTest, RejectsIncompleteIsNullPredicate) {
+  EXPECT_EQ(expect_error(parse("SELECT * FROM users WHERE name IS;")).message,
+            "expected NULL after IS or IS NOT, found ';'");
+  EXPECT_EQ(
+      expect_error(parse("SELECT * FROM users WHERE name IS NOT 'Alice';"))
+          .message,
+      "expected NULL after IS or IS NOT, found ''Alice''");
+}
+
 TEST(ParserTest, ParsesAllComparisonOperators) {
   const std::vector<std::pair<std::string, ComparisonOperator>> cases{
       {"=", ComparisonOperator::Equal},

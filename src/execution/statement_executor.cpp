@@ -68,6 +68,12 @@ std::string value_type_name(DataTypeKind type) {
 
 bool matches(const Value& left, sql::ComparisonOperator operation,
              const Value& right) {
+  if (operation == sql::ComparisonOperator::IsNull) {
+    return left.is_null();
+  }
+  if (operation == sql::ComparisonOperator::IsNotNull) {
+    return !left.is_null();
+  }
   if (left.is_null() || right.is_null()) {
     return false;
   }
@@ -84,6 +90,9 @@ bool matches(const Value& left, sql::ComparisonOperator operation,
       return std::is_gt(left <=> right);
     case sql::ComparisonOperator::GreaterThanOrEqual:
       return std::is_gteq(left <=> right);
+    case sql::ComparisonOperator::IsNull:
+    case sql::ComparisonOperator::IsNotNull:
+      return false;
   }
   return false;
 }

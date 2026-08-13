@@ -46,6 +46,7 @@ TokenType identifier_type(std::string_view text) {
       {"PRIMARY", TokenType::Primary},
       {"KEY", TokenType::Key},
       {"UNIQUE", TokenType::Unique},
+      {"IS", TokenType::Is},
       {"NOT", TokenType::Not},
       {"NULL", TokenType::Null},
       {"INSERT", TokenType::Insert},

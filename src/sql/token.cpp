@@ -40,6 +40,8 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "KEY";
     case TokenType::Unique:
       return "UNIQUE";
+    case TokenType::Is:
+      return "IS";
     case TokenType::Not:
       return "NOT";
     case TokenType::Null:
