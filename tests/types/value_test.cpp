@@ -12,10 +12,12 @@ namespace curiodb {
 namespace {
 
 TEST(ValueTest, StoresAndAccessesEachSupportedType) {
+  const Value null;
   const Value integer{std::int64_t{42}};
   const Value floating_point{3.5};
   const Value string{"CurioDB"};
 
+  EXPECT_TRUE(null.is_null());
   EXPECT_EQ(integer.type(), DataTypeKind::Integer);
   EXPECT_EQ(integer.as_integer(), 42);
   EXPECT_EQ(floating_point.type(), DataTypeKind::Double);
@@ -32,6 +34,7 @@ TEST(ValueTest, RejectsAccessUsingTheWrongType) {
 }
 
 TEST(ValueTest, FormatsValuesForDisplay) {
+  EXPECT_EQ(Value{}.to_string(), "NULL");
   EXPECT_EQ(Value{std::int64_t{-42}}.to_string(), "-42");
   EXPECT_EQ(Value{3.5}.to_string(), "3.5");
   EXPECT_EQ(Value{"Alice"}.to_string(), "Alice");
@@ -51,6 +54,11 @@ TEST(ValueTest, DoesNotOrderValuesOfDifferentTypes) {
   EXPECT_NE(Value{std::int64_t{1}}, Value{1.0});
 }
 
+TEST(ValueTest, DoesNotOrderNullValues) {
+  EXPECT_EQ(Value{} <=> Value{}, std::partial_ordering::unordered);
+  EXPECT_EQ(Value{} <=> Value{std::int64_t{1}},
+            std::partial_ordering::unordered);
+}
+
 }  // namespace
 }  // namespace curiodb
-

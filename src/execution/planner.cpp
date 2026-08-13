@@ -35,8 +35,16 @@ std::string normalize(std::string_view name) {
 }
 
 Value value_from_literal(const sql::Literal& literal) {
-  return std::visit([](const auto& value) { return Value{value}; },
-                    literal.value);
+  return std::visit(
+      [](const auto& value) -> Value {
+        if constexpr (std::is_same_v<std::decay_t<decltype(value)>,
+                                     std::monostate>) {
+          return Value{};
+        } else {
+          return Value{value};
+        }
+      },
+      literal.value);
 }
 
 std::string value_type_name(DataTypeKind type) {
@@ -53,6 +61,9 @@ std::string value_type_name(DataTypeKind type) {
 
 bool matches(const Value& left, sql::ComparisonOperator operation,
              const Value& right) {
+  if (left.is_null() || right.is_null()) {
+    return false;
+  }
   switch (operation) {
     case sql::ComparisonOperator::Equal:
       return left == right;
@@ -110,7 +121,7 @@ std::variant<BoundPredicate, PlannerError> bind_expression(
     const auto index = static_cast<std::size_t>(
         std::distance(schema.columns.begin(), column));
     const Value value = value_from_literal(comparison->value);
-    if (value.type() != column->type.kind) {
+    if (!value.is_null() && value.type() != column->type.kind) {
       return PlannerError{
           .message = "column '" + column->name + "': expected " +
                      format_data_type(column->type) + ", received " +

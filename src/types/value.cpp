@@ -21,15 +21,19 @@ Value::Value(const char* value) : storage_(std::string{value}) {}
 
 DataTypeKind Value::type() const noexcept {
   switch (storage_.index()) {
-    case 0:
-      return DataTypeKind::Integer;
     case 1:
-      return DataTypeKind::Double;
+      return DataTypeKind::Integer;
     case 2:
+      return DataTypeKind::Double;
+    case 3:
       return DataTypeKind::Varchar;
     default:
       return DataTypeKind::Integer;
   }
+}
+
+bool Value::is_null() const noexcept {
+  return std::holds_alternative<std::monostate>(storage_);
 }
 
 std::int64_t Value::as_integer() const {
@@ -43,6 +47,9 @@ const std::string& Value::as_string() const {
 }
 
 std::string Value::to_string() const {
+  if (is_null()) {
+    return "NULL";
+  }
   if (const auto* integer = std::get_if<std::int64_t>(&storage_)) {
     return std::to_string(*integer);
   }
@@ -61,6 +68,9 @@ std::string Value::to_string() const {
 }
 
 std::partial_ordering operator<=>(const Value& left, const Value& right) {
+  if (left.is_null() || right.is_null()) {
+    return std::partial_ordering::unordered;
+  }
   if (left.storage_.index() != right.storage_.index()) {
     return std::partial_ordering::unordered;
   }

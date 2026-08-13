@@ -17,6 +17,7 @@
 namespace curiodb::storage {
 namespace {
 
+constexpr std::uint8_t kNullTag = 0;
 constexpr std::uint8_t kIntegerTag = 1;
 constexpr std::uint8_t kDoubleTag = 2;
 constexpr std::uint8_t kVarcharTag = 3;
@@ -45,6 +46,10 @@ SerializationError too_large(std::string message) {
 }
 
 bool append_value(SerializedBytes& bytes, const Value& value) {
+  if (value.is_null()) {
+    append_u8(bytes, kNullTag);
+    return true;
+  }
   switch (value.type()) {
     case DataTypeKind::Integer:
       append_u8(bytes, kIntegerTag);
@@ -142,6 +147,9 @@ ValueDeserializationResult read_value(Reader& reader) {
   std::uint8_t tag = 0;
   if (!reader.read_u8(tag)) {
     return unexpected_end(reader.offset());
+  }
+  if (tag == kNullTag) {
+    return Value{};
   }
   if (tag == kIntegerTag) {
     std::uint64_t bits = 0;

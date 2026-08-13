@@ -11,11 +11,13 @@ namespace curiodb {
 
 class Value {
  public:
+  Value() noexcept = default;
   explicit Value(std::int64_t value) noexcept;
   explicit Value(double value) noexcept;
   explicit Value(std::string value);
   explicit Value(const char* value);
 
+  [[nodiscard]] bool is_null() const noexcept;
   [[nodiscard]] DataTypeKind type() const noexcept;
   [[nodiscard]] std::int64_t as_integer() const;
   [[nodiscard]] double as_double() const;
@@ -27,7 +29,8 @@ class Value {
                                             const Value& right);
 
  private:
-  using Storage = std::variant<std::int64_t, double, std::string>;
+  using Storage =
+      std::variant<std::monostate, std::int64_t, double, std::string>;
   Storage storage_;
 };
 

@@ -57,6 +57,13 @@ RowValidationResult validate_row(const catalog::TableSchema& schema,
       return column_error(RowValidationErrorCode::InvalidSchema, column, index,
                           "invalid type definition");
     }
+    if (value.is_null()) {
+      if (column.not_null || column.primary_key) {
+        return column_error(RowValidationErrorCode::NullNotAllowed, column,
+                            index, "NULL is not allowed");
+      }
+      continue;
+    }
     if (value.type() != column.type.kind) {
       return column_error(
           RowValidationErrorCode::TypeMismatch, column, index,
@@ -75,4 +82,3 @@ RowValidationResult validate_row(const catalog::TableSchema& schema,
 }
 
 }  // namespace curiodb::storage
-

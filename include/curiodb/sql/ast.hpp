@@ -61,7 +61,8 @@ struct CreateIndexStatement {
       const CreateIndexStatement&, const CreateIndexStatement&) = default;
 };
 
-using LiteralValue = std::variant<std::int64_t, double, std::string>;
+using LiteralValue =
+    std::variant<std::monostate, std::int64_t, double, std::string>;
 
 struct Literal {
   LiteralValue value;

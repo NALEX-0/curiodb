@@ -31,6 +31,9 @@ RowValidationResult InMemoryTable::insert(Row row) {
     if (!(column.primary_key || column.unique)) {
       continue;
     }
+    if (row[column_index].is_null()) {
+      continue;
+    }
     if (std::any_of(rows_.begin(), rows_.end(), [&](const Row& existing) {
           return existing[column_index] == row[column_index];
         })) {

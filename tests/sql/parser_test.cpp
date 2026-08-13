@@ -164,13 +164,22 @@ TEST(ParserTest, ParsesInsertWithTypedAndEscapedLiterals) {
   EXPECT_EQ(insert.location, (SourceLocation{0, 1, 1}));
 }
 
+TEST(ParserTest, ParsesNullLiteral) {
+  const auto result = parse("INSERT INTO employees VALUES (1, NULL);");
+  const Statement statement = expect_success(result);
+  const auto& insert = std::get<InsertStatement>(statement);
+
+  ASSERT_EQ(insert.values.size(), 2U);
+  EXPECT_TRUE(std::holds_alternative<std::monostate>(insert.values[1].value));
+}
+
 TEST(ParserTest, RejectsMalformedInsert) {
   EXPECT_EQ(expect_error(parse("INSERT employees VALUES (1);" )).message,
             "expected INTO after INSERT, found 'employees'");
   EXPECT_EQ(expect_error(parse("INSERT INTO employees VALUES ();" )).message,
             "expected at least one value");
   EXPECT_EQ(expect_error(parse("INSERT INTO employees VALUES (name);" )).message,
-            "expected integer, floating-point, or string value, found 'name'");
+            "expected integer, floating-point, string, or NULL value, found 'name'");
 }
 
 TEST(ParserTest, ParsesSelectAll) {

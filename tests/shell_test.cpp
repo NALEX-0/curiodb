@@ -197,6 +197,46 @@ SELECT * FROM users;
   EXPECT_NE(output.str().find("2 rows selected."), std::string::npos);
 }
 
+TEST(ShellTest, StoresNullAndEnforcesNotNullAcrossRestart) {
+  TemporaryDataDirectory directory;
+  {
+    std::istringstream input{R"(CREATE DATABASE app;
+USE app;
+CREATE TABLE users (id INT PRIMARY KEY, nickname VARCHAR(50) UNIQUE, name VARCHAR(50) NOT NULL);
+INSERT INTO users VALUES (1, NULL, 'Alice');
+INSERT INTO users VALUES (2, NULL, 'Bob');
+INSERT INTO users VALUES (NULL, 'missing-id', 'Carol');
+INSERT INTO users VALUES (3, 'carol', NULL);
+UPDATE users SET name = NULL WHERE id = 1;
+SELECT * FROM users;
+SELECT * FROM users WHERE nickname = NULL;
+.quit
+)"};
+    std::ostringstream output;
+    curiodb::cli::Shell shell{input, output, directory.path()};
+    ASSERT_EQ(shell.run(), 0) << output.str();
+    const std::string result = output.str();
+    EXPECT_NE(result.find("NULL     | Alice"), std::string::npos) << result;
+    EXPECT_NE(result.find("NULL     | Bob"), std::string::npos) << result;
+    EXPECT_NE(result.find("column 'id': NULL is not allowed"),
+              std::string::npos) << result;
+    EXPECT_NE(result.find("column 'name': NULL is not allowed"),
+              std::string::npos) << result;
+    EXPECT_NE(result.find("0 rows selected."), std::string::npos) << result;
+  }
+
+  std::istringstream input{R"(USE app;
+SELECT * FROM users;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell reopened{input, output, directory.path()};
+  ASSERT_EQ(reopened.run(), 0) << output.str();
+  EXPECT_NE(output.str().find("NULL"), std::string::npos) << output.str();
+  EXPECT_NE(output.str().find("2 rows selected."), std::string::npos)
+      << output.str();
+}
+
 TEST(ShellTest, DeletesMatchingRowsAndPersistsDeletion) {
   TemporaryDataDirectory directory;
   {

@@ -450,6 +450,10 @@ std::optional<Literal> Parser::parse_literal() {
   const SourceLocation location = current().location;
   const bool negative = match(TokenType::Minus);
 
+  if (!negative && match(TokenType::Null)) {
+    return Literal{.value = std::monostate{}, .location = location};
+  }
+
   if (check(TokenType::IntegerLiteral)) {
     const Token token = advance();
     const std::string text = negative ? "-" + token.lexeme : token.lexeme;
@@ -482,7 +486,7 @@ std::optional<Literal> Parser::parse_literal() {
                    .location = location};
   }
 
-  report_error(current(), "expected integer, floating-point, or string value, found " +
+  report_error(current(), "expected integer, floating-point, string, or NULL value, found " +
                               found_token(current()));
   return std::nullopt;
 }

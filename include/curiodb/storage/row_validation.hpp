@@ -14,6 +14,7 @@ enum class RowValidationErrorCode {
   TypeMismatch,
   VarcharTooLong,
   InvalidSchema,
+  NullNotAllowed,
 };
 
 struct RowValidationError {
@@ -31,4 +32,3 @@ using RowValidationResult = std::optional<RowValidationError>;
     const catalog::TableSchema& schema, const Row& row);
 
 }  // namespace curiodb::storage
-

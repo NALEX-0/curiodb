@@ -42,8 +42,16 @@ std::string normalize(std::string_view name) {
 }
 
 Value value_from_literal(const sql::Literal& literal) {
-  return std::visit([](const auto& value) { return Value{value}; },
-                    literal.value);
+  return std::visit(
+      [](const auto& value) -> Value {
+        if constexpr (std::is_same_v<std::decay_t<decltype(value)>,
+                                     std::monostate>) {
+          return Value{};
+        } else {
+          return Value{value};
+        }
+      },
+      literal.value);
 }
 
 std::string value_type_name(DataTypeKind type) {
@@ -60,6 +68,9 @@ std::string value_type_name(DataTypeKind type) {
 
 bool matches(const Value& left, sql::ComparisonOperator operation,
              const Value& right) {
+  if (left.is_null() || right.is_null()) {
+    return false;
+  }
   switch (operation) {
     case sql::ComparisonOperator::Equal:
       return left == right;
@@ -96,7 +107,8 @@ std::optional<FilterOperator::Predicate> bind_predicate(
     const auto index = static_cast<std::size_t>(
         std::distance(schema.columns.begin(), column));
     const Value comparison_value = value_from_literal(comparison->value);
-    if (comparison_value.type() != column->type.kind) {
+    if (!comparison_value.is_null() &&
+        comparison_value.type() != column->type.kind) {
       binding_error = "column '" + column->name + "': expected " +
                       format_data_type(column->type) + ", received " +
                       value_type_name(comparison_value.type());

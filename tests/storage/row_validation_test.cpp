@@ -30,6 +30,30 @@ TEST(RowValidationTest, AcceptsRowMatchingSchema) {
   EXPECT_FALSE(validate_row(employee_schema(), row).has_value());
 }
 
+TEST(RowValidationTest, AcceptsNullForNullableColumn) {
+  auto schema = employee_schema();
+  const Row row{Value{std::int64_t{1}}, Value{}, Value{65000.0}};
+
+  EXPECT_FALSE(validate_row(schema, row).has_value());
+}
+
+TEST(RowValidationTest, RejectsNullForNotNullAndPrimaryKeyColumns) {
+  auto not_null_schema = employee_schema();
+  not_null_schema.columns[1].not_null = true;
+  const auto not_null = validate_row(
+      not_null_schema,
+      Row{Value{std::int64_t{1}}, Value{}, Value{65000.0}});
+  ASSERT_TRUE(not_null.has_value());
+  EXPECT_EQ(not_null->code, RowValidationErrorCode::NullNotAllowed);
+
+  auto primary_key_schema = employee_schema();
+  primary_key_schema.columns[0].primary_key = true;
+  const auto primary_key = validate_row(
+      primary_key_schema, Row{Value{}, Value{"Alice"}, Value{65000.0}});
+  ASSERT_TRUE(primary_key.has_value());
+  EXPECT_EQ(primary_key->code, RowValidationErrorCode::NullNotAllowed);
+}
+
 TEST(RowValidationTest, RejectsWrongNumberOfValues) {
   const Row row{Value{std::int64_t{1}}, Value{"Alice"}};
   const auto result = validate_row(employee_schema(), row);
@@ -92,4 +116,3 @@ TEST(RowValidationTest, RejectsLengthOnNonVarcharSchema) {
 
 }  // namespace
 }  // namespace curiodb::storage
-

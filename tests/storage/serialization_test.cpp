@@ -31,7 +31,7 @@ TEST(SerializationTest, UsesStableLittleEndianIntegerEncoding) {
 }
 
 TEST(SerializationTest, RoundTripsEveryValueType) {
-  const std::vector<Value> values{Value{std::int64_t{-42}}, Value{-0.0},
+  const std::vector<Value> values{Value{}, Value{std::int64_t{-42}}, Value{-0.0},
                                   Value{std::string{"O'Brien"}}};
 
   for (const auto& original : values) {
@@ -39,14 +39,21 @@ TEST(SerializationTest, RoundTripsEveryValueType) {
     const auto decoded = deserialize_value(bytes);
     ASSERT_TRUE(std::holds_alternative<Value>(decoded));
     const Value& value = std::get<Value>(decoded);
-    EXPECT_EQ(value.type(), original.type());
-    if (value.type() == DataTypeKind::Double) {
+    EXPECT_EQ(value.is_null(), original.is_null());
+    if (value.is_null()) {
+      EXPECT_EQ(value, original);
+    } else if (value.type() == DataTypeKind::Double) {
       EXPECT_EQ(std::bit_cast<std::uint64_t>(value.as_double()),
                 std::bit_cast<std::uint64_t>(original.as_double()));
     } else {
       EXPECT_EQ(value, original);
     }
   }
+}
+
+TEST(SerializationTest, UsesSingleByteNullEncoding) {
+  EXPECT_EQ(expect_bytes(serialize_value(Value{})),
+            (SerializedBytes{std::byte{0}}));
 }
 
 TEST(SerializationTest, RoundTripsCompleteRow) {
@@ -115,4 +122,3 @@ TEST(SerializationTest, RejectsImpossibleRowCountBeforeAllocating) {
 
 }  // namespace
 }  // namespace curiodb::storage
-

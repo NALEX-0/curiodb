@@ -188,6 +188,9 @@ DiskStorageResult DiskStorage::create_index(
   }
   BPlusTree tree{*state->buffer_pool};
   for (const auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
+    if (heap_row.row[column_index].is_null()) {
+      continue;
+    }
     const auto inserted =
         tree.insert(heap_row.row[column_index].as_integer(), heap_row.id);
     if (const auto* tree_error = std::get_if<BPlusTreeError>(&inserted)) {
@@ -231,7 +234,7 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
        column_index < stored_table->schema.columns.size(); ++column_index) {
     const auto& column = stored_table->schema.columns[column_index];
     if (!(column.primary_key || column.unique) ||
-        column.type.kind == DataTypeKind::Integer) {
+        column.type.kind == DataTypeKind::Integer || row[column_index].is_null()) {
       continue;
     }
     for (const auto& heap_row : std::get<std::vector<HeapRow>>(existing_rows)) {
@@ -250,6 +253,9 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
         });
     const std::size_t column_index = static_cast<std::size_t>(std::distance(
         stored_table->schema.columns.begin(), column));
+    if (row[column_index].is_null()) {
+      continue;
+    }
     BPlusTree tree{*state->buffer_pool, index.root_page_id};
     const auto existing = tree.find(row[column_index].as_integer());
     if (const auto* tree_error = std::get_if<BPlusTreeError>(&existing)) {
@@ -279,6 +285,9 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
         });
     const std::size_t column_index = static_cast<std::size_t>(std::distance(
         stored_table->schema.columns.begin(), column));
+    if (row[column_index].is_null()) {
+      continue;
+    }
     BPlusTree tree{*state->buffer_pool, index.root_page_id};
     const auto indexed = tree.insert(row[column_index].as_integer(), inserted_id);
     if (const auto* tree_error = std::get_if<BPlusTreeError>(&indexed)) {
@@ -397,6 +406,9 @@ DiskDeleteResult DiskStorage::delete_where(
           });
       const std::size_t column_index = static_cast<std::size_t>(std::distance(
           stored_table->schema.columns.begin(), column));
+      if (heap_row.row[column_index].is_null()) {
+        continue;
+      }
       BPlusTree tree{*state->buffer_pool, index.root_page_id};
       const auto erased = tree.erase(heap_row.row[column_index].as_integer());
       if (const auto* tree_error = std::get_if<BPlusTreeError>(&erased)) {
@@ -434,7 +446,8 @@ DiskUpdateResult DiskStorage::update_where(
     return wrapped_error(*scan_error);
   }
   const auto& changed_column = stored_table->schema.columns[column_index];
-  if (changed_column.primary_key || changed_column.unique) {
+  if ((changed_column.primary_key || changed_column.unique) &&
+      !value.is_null()) {
     std::size_t matching_count = 0;
     const HeapRow* matching_row = nullptr;
     for (const auto& candidate : std::get<std::vector<HeapRow>>(scanned)) {
@@ -475,13 +488,12 @@ DiskUpdateResult DiskStorage::update_where(
       const std::size_t index_column_number =
           static_cast<std::size_t>(std::distance(
               stored_table->schema.columns.begin(), index_column));
-      const std::int64_t old_key =
-          old_row[index_column_number].as_integer();
-      const std::int64_t new_key =
-          heap_row.row[index_column_number].as_integer();
-      if (old_key != new_key) {
+      const Value& old_value = old_row[index_column_number];
+      const Value& new_value = heap_row.row[index_column_number];
+      if (!new_value.is_null() &&
+          (old_value.is_null() || old_value != new_value)) {
         BPlusTree tree{*state->buffer_pool, index.root_page_id};
-        const auto existing = tree.find(new_key);
+        const auto existing = tree.find(new_value.as_integer());
         if (const auto* tree_error = std::get_if<BPlusTreeError>(&existing)) {
           return error(tree_error->message);
         }
@@ -515,14 +527,19 @@ DiskUpdateResult DiskStorage::update_where(
           static_cast<std::size_t>(std::distance(
               stored_table->schema.columns.begin(), index_column));
       BPlusTree tree{*state->buffer_pool, index.root_page_id};
-      auto changed = tree.erase(old_row[index_column_number].as_integer());
-      if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
-        return error(tree_error->message);
+      const Value& old_value = old_row[index_column_number];
+      const Value& new_value = heap_row.row[index_column_number];
+      if (!old_value.is_null()) {
+        const auto changed = tree.erase(old_value.as_integer());
+        if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
+          return error(tree_error->message);
+        }
       }
-      changed = tree.insert(heap_row.row[index_column_number].as_integer(),
-                            new_row_id);
-      if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
-        return error(tree_error->message);
+      if (!new_value.is_null()) {
+        const auto changed = tree.insert(new_value.as_integer(), new_row_id);
+        if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
+          return error(tree_error->message);
+        }
       }
       index.root_page_id = tree.root_page_id();
     }
