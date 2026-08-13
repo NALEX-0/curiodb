@@ -30,6 +30,8 @@ enum class TokenType {
 
   // SQL keywords. Keywords are recognized case-insensitively by the lexer
   Create,
+  Index,
+  On,
   Database,
   Use,
   Table,
@@ -40,6 +42,7 @@ enum class TokenType {
   Into,
   Values,
   Select,
+  Explain,
   Delete,
   Update,
   Set,

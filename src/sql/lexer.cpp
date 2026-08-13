@@ -35,6 +35,8 @@ std::string uppercase(std::string_view text) {
 TokenType identifier_type(std::string_view text) {
   static const std::unordered_map<std::string, TokenType> keywords{
       {"CREATE", TokenType::Create},
+      {"INDEX", TokenType::Index},
+      {"ON", TokenType::On},
       {"DATABASE", TokenType::Database},
       {"USE", TokenType::Use},
       {"TABLE", TokenType::Table},
@@ -45,6 +47,7 @@ TokenType identifier_type(std::string_view text) {
       {"INTO", TokenType::Into},
       {"VALUES", TokenType::Values},
       {"SELECT", TokenType::Select},
+      {"EXPLAIN", TokenType::Explain},
       {"DELETE", TokenType::Delete},
       {"UPDATE", TokenType::Update},
       {"SET", TokenType::Set},

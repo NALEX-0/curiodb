@@ -165,8 +165,14 @@ ExecutionResult StatementExecutor::execute(const sql::Statement& statement) {
         } else if constexpr (std::is_same_v<StatementType,
                                             sql::DeleteStatement>) {
           return execute_delete(value);
-        } else {
+        } else if constexpr (std::is_same_v<StatementType,
+                                            sql::UpdateStatement>) {
           return execute_update(value);
+        } else if constexpr (std::is_same_v<StatementType,
+                                            sql::CreateIndexStatement>) {
+          return execute_create_index(value);
+        } else {
+          return execute_explain(value);
         }
       },
       statement);
@@ -277,7 +283,11 @@ ExecutionResult StatementExecutor::execute_select(
     return {.success = false,
             .message = "table '" + statement.table_name + "' does not exist"};
   }
-  auto planned = plan_select(statement, *schema);
+  const auto available_indexes =
+      disk_storage_ == nullptr
+          ? std::vector<catalog::StoredIndex>{}
+          : disk_storage_->indexes(*database, statement.table_name);
+  auto planned = plan_select(statement, *schema, available_indexes);
   if (const auto* error = std::get_if<PlannerError>(&planned)) {
     return {.success = false, .message = error->message};
   }
@@ -285,7 +295,18 @@ ExecutionResult StatementExecutor::execute_select(
   std::vector<storage::Row> disk_rows;
   const storage::InMemoryTable* table = nullptr;
   if (disk_storage_ != nullptr) {
-    auto scanned = disk_storage_->scan(*database, statement.table_name);
+    storage::DiskRowsResult scanned;
+    const auto& projection = std::get<ProjectionPlan>(plan.node);
+    const PlanNode* scan_node = projection.child.get();
+    if (const auto* filter = std::get_if<FilterPlan>(&scan_node->node)) {
+      scan_node = filter->child.get();
+    }
+    if (const auto* index = std::get_if<IndexScanPlan>(&scan_node->node)) {
+      scanned = disk_storage_->index_scan(*database, statement.table_name,
+                                          index->column_name, index->key);
+    } else {
+      scanned = disk_storage_->scan(*database, statement.table_name);
+    }
     if (const auto* storage_error =
             std::get_if<storage::DiskStorageError>(&scanned)) {
       return {.success = false, .message = storage_error->message};
@@ -450,6 +471,57 @@ ExecutionResult StatementExecutor::execute_update(
   return {.success = true,
           .message = std::to_string(count) +
                      (count == 1 ? " row updated." : " rows updated.")};
+}
+
+ExecutionResult StatementExecutor::execute_create_index(
+    const sql::CreateIndexStatement& statement) {
+  const auto database = catalog_.active_database();
+  if (!database.has_value()) {
+    return {.success = false,
+            .message = "no database selected; use USE <database> first"};
+  }
+  if (catalog_.find_table(statement.table_name) == nullptr) {
+    return {.success = false,
+            .message = "table '" + statement.table_name + "' does not exist"};
+  }
+  if (disk_storage_ == nullptr) {
+    return {.success = false,
+            .message = "indexes require disk-backed storage"};
+  }
+  const auto created = disk_storage_->create_index(
+      *database, statement.name, statement.table_name, statement.column_name);
+  if (const auto* storage_error =
+          std::get_if<storage::DiskStorageError>(&created)) {
+    return {.success = false, .message = storage_error->message};
+  }
+  return {.success = true,
+          .message = "Index '" + statement.name + "' created."};
+}
+
+ExecutionResult StatementExecutor::execute_explain(
+    const sql::ExplainStatement& statement) {
+  const auto database = catalog_.active_database();
+  if (!database.has_value()) {
+    return {.success = false,
+            .message = "no database selected; use USE <database> first"};
+  }
+  const catalog::TableSchema* const schema =
+      catalog_.find_table(statement.select.table_name);
+  if (schema == nullptr) {
+    return {.success = false,
+            .message = "table '" + statement.select.table_name +
+                       "' does not exist"};
+  }
+  const auto available_indexes =
+      disk_storage_ == nullptr
+          ? std::vector<catalog::StoredIndex>{}
+          : disk_storage_->indexes(*database, statement.select.table_name);
+  const auto planned = plan_select(statement.select, *schema, available_indexes);
+  if (const auto* planner_error = std::get_if<PlannerError>(&planned)) {
+    return {.success = false, .message = planner_error->message};
+  }
+  return {.success = true,
+          .message = format_plan(std::get<PlanNode>(planned))};
 }
 
 }  // namespace curiodb::execution

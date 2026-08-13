@@ -13,6 +13,7 @@
 #include "curiodb/catalog/catalog_storage.hpp"
 #include "curiodb/storage/row_validation.hpp"
 #include "curiodb/storage/table_heap.hpp"
+#include "curiodb/storage/b_plus_tree.hpp"
 
 namespace curiodb::storage {
 namespace {
@@ -139,6 +140,65 @@ DiskStorageResult DiskStorage::create_table(
   return std::monostate{};
 }
 
+DiskStorageResult DiskStorage::create_index(
+    std::string_view database, std::string name, std::string_view table,
+    std::string_view column) {
+  DatabaseState* const state = find_database(database);
+  if (state == nullptr) {
+    return error("database storage is unavailable");
+  }
+  for (const auto& candidate_table : state->catalog.tables) {
+    for (const auto& candidate : candidate_table.indexes) {
+      if (normalize(candidate.name) == normalize(name)) {
+        return error("index '" + name + "' already exists");
+      }
+    }
+  }
+  catalog::StoredTable* const stored_table = find_table(*state, table);
+  if (stored_table == nullptr) {
+    return error("table storage is unavailable");
+  }
+  const std::string column_key = normalize(column);
+  const auto found_column = std::find_if(
+      stored_table->schema.columns.begin(), stored_table->schema.columns.end(),
+      [&column_key](const catalog::ColumnSchema& candidate) {
+        return normalize(candidate.name) == column_key;
+      });
+  if (found_column == stored_table->schema.columns.end()) {
+    return error("column '" + std::string{column} + "' does not exist");
+  }
+  if (found_column->type.kind != DataTypeKind::Integer) {
+    return error("B+ tree indexes currently support INT columns only");
+  }
+  const std::size_t column_index = static_cast<std::size_t>(std::distance(
+      stored_table->schema.columns.begin(), found_column));
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
+  auto scanned = heap.scan();
+  if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
+    return wrapped_error(*scan_error);
+  }
+  BPlusTree tree{*state->buffer_pool};
+  for (const auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
+    const auto inserted =
+        tree.insert(heap_row.row[column_index].as_integer(), heap_row.id);
+    if (const auto* tree_error = std::get_if<BPlusTreeError>(&inserted)) {
+      return error(tree_error->message);
+    }
+  }
+  stored_table->indexes.push_back(
+      {.name = std::move(name),
+       .column_name = found_column->name,
+       .root_page_id = tree.root_page_id()});
+  const auto metadata = catalog::store_catalog(*state->disk, state->catalog);
+  if (const auto* metadata_error =
+          std::get_if<catalog::CatalogStorageError>(&metadata)) {
+    stored_table->indexes.pop_back();
+    return wrapped_error(*metadata_error);
+  }
+  rebuild_catalog_view();
+  return std::monostate{};
+}
+
 DiskStorageResult DiskStorage::insert(std::string_view database,
                                       std::string_view table, Row row) {
   DatabaseState* const state = find_database(database);
@@ -153,10 +213,43 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
       validation.has_value()) {
     return error(validation->message);
   }
+  for (const auto& index : stored_table->indexes) {
+    const auto column = std::find_if(
+        stored_table->schema.columns.begin(), stored_table->schema.columns.end(),
+        [&index](const catalog::ColumnSchema& candidate) {
+          return normalize(candidate.name) == normalize(index.column_name);
+        });
+    const std::size_t column_index = static_cast<std::size_t>(std::distance(
+        stored_table->schema.columns.begin(), column));
+    BPlusTree tree{*state->buffer_pool, index.root_page_id};
+    const auto existing = tree.find(row[column_index].as_integer());
+    if (const auto* tree_error = std::get_if<BPlusTreeError>(&existing)) {
+      return error(tree_error->message);
+    }
+    if (std::get<std::optional<RowId>>(existing).has_value()) {
+      return error("duplicate value for unique index '" + index.name + "'");
+    }
+  }
   TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   const auto inserted = heap.insert(row);
   if (std::holds_alternative<TableHeapError>(inserted)) {
     return wrapped_error(std::get<TableHeapError>(inserted));
+  }
+  const RowId inserted_id = std::get<RowId>(inserted);
+  for (auto& index : stored_table->indexes) {
+    const auto column = std::find_if(
+        stored_table->schema.columns.begin(), stored_table->schema.columns.end(),
+        [&index](const catalog::ColumnSchema& candidate) {
+          return normalize(candidate.name) == normalize(index.column_name);
+        });
+    const std::size_t column_index = static_cast<std::size_t>(std::distance(
+        stored_table->schema.columns.begin(), column));
+    BPlusTree tree{*state->buffer_pool, index.root_page_id};
+    const auto indexed = tree.insert(row[column_index].as_integer(), inserted_id);
+    if (const auto* tree_error = std::get_if<BPlusTreeError>(&indexed)) {
+      return error(tree_error->message);
+    }
+    index.root_page_id = tree.root_page_id();
   }
   stored_table->page_ids.assign(heap.page_ids().begin(), heap.page_ids().end());
   const auto metadata = catalog::store_catalog(*state->disk, state->catalog);
@@ -191,6 +284,54 @@ DiskRowsResult DiskStorage::scan(std::string_view database,
   return rows;
 }
 
+DiskRowsResult DiskStorage::index_scan(std::string_view database,
+                                       std::string_view table,
+                                       std::string_view column,
+                                       std::int64_t key) {
+  DatabaseState* const state = find_database(database);
+  if (state == nullptr) {
+    return error("database storage is unavailable");
+  }
+  catalog::StoredTable* const stored_table = find_table(*state, table);
+  if (stored_table == nullptr) {
+    return error("table storage is unavailable");
+  }
+  const auto index = std::find_if(
+      stored_table->indexes.begin(), stored_table->indexes.end(),
+      [&column](const catalog::StoredIndex& candidate) {
+        return normalize(candidate.column_name) == normalize(column);
+      });
+  if (index == stored_table->indexes.end()) {
+    return error("index storage is unavailable");
+  }
+  BPlusTree tree{*state->buffer_pool, index->root_page_id};
+  const auto found = tree.find(key);
+  if (const auto* tree_error = std::get_if<BPlusTreeError>(&found)) {
+    return error(tree_error->message);
+  }
+  const auto& row_id = std::get<std::optional<RowId>>(found);
+  if (!row_id.has_value()) {
+    return std::vector<Row>{};
+  }
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
+  auto fetched = heap.fetch(*row_id);
+  if (const auto* heap_error = std::get_if<TableHeapError>(&fetched)) {
+    return wrapped_error(*heap_error);
+  }
+  return std::vector<Row>{std::get<Row>(std::move(fetched))};
+}
+
+std::vector<catalog::StoredIndex> DiskStorage::indexes(
+    std::string_view database, std::string_view table) {
+  DatabaseState* const state = find_database(database);
+  if (state == nullptr) {
+    return {};
+  }
+  catalog::StoredTable* const stored_table = find_table(*state, table);
+  return stored_table == nullptr ? std::vector<catalog::StoredIndex>{}
+                                 : stored_table->indexes;
+}
+
 DiskDeleteResult DiskStorage::delete_where(
     std::string_view database, std::string_view table,
     const std::function<bool(const Row&)>& predicate) {
@@ -211,6 +352,21 @@ DiskDeleteResult DiskStorage::delete_where(
   for (const auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
     if (!predicate(heap_row.row)) {
       continue;
+    }
+    for (const auto& index : stored_table->indexes) {
+      const auto column = std::find_if(
+          stored_table->schema.columns.begin(),
+          stored_table->schema.columns.end(),
+          [&index](const catalog::ColumnSchema& candidate) {
+            return normalize(candidate.name) == normalize(index.column_name);
+          });
+      const std::size_t column_index = static_cast<std::size_t>(std::distance(
+          stored_table->schema.columns.begin(), column));
+      BPlusTree tree{*state->buffer_pool, index.root_page_id};
+      const auto erased = tree.erase(heap_row.row[column_index].as_integer());
+      if (const auto* tree_error = std::get_if<BPlusTreeError>(&erased)) {
+        return error(tree_error->message);
+      }
     }
     const auto deleted = heap.delete_row(heap_row.id);
     if (const auto* delete_error = std::get_if<TableHeapError>(&deleted)) {
@@ -247,10 +403,58 @@ DiskUpdateResult DiskStorage::update_where(
     if (!predicate(heap_row.row)) {
       continue;
     }
+    const Row old_row = heap_row.row;
     heap_row.row.set(column_index, value);
+    for (const auto& index : stored_table->indexes) {
+      const auto index_column = std::find_if(
+          stored_table->schema.columns.begin(),
+          stored_table->schema.columns.end(),
+          [&index](const catalog::ColumnSchema& candidate) {
+            return normalize(candidate.name) == normalize(index.column_name);
+          });
+      const std::size_t index_column_number =
+          static_cast<std::size_t>(std::distance(
+              stored_table->schema.columns.begin(), index_column));
+      const std::int64_t old_key = old_row[index_column_number].as_integer();
+      const std::int64_t new_key =
+          heap_row.row[index_column_number].as_integer();
+      if (old_key != new_key) {
+        BPlusTree tree{*state->buffer_pool, index.root_page_id};
+        const auto existing = tree.find(new_key);
+        if (const auto* tree_error = std::get_if<BPlusTreeError>(&existing)) {
+          return error(tree_error->message);
+        }
+        if (std::get<std::optional<RowId>>(existing).has_value()) {
+          return error("duplicate value for unique index '" + index.name + "'");
+        }
+      }
+    }
     const auto updated = heap.update(heap_row.id, heap_row.row);
     if (const auto* update_error = std::get_if<TableHeapError>(&updated)) {
       return wrapped_error(*update_error);
+    }
+    const RowId new_row_id = std::get<RowId>(updated);
+    for (auto& index : stored_table->indexes) {
+      const auto index_column = std::find_if(
+          stored_table->schema.columns.begin(),
+          stored_table->schema.columns.end(),
+          [&index](const catalog::ColumnSchema& candidate) {
+            return normalize(candidate.name) == normalize(index.column_name);
+          });
+      const std::size_t index_column_number =
+          static_cast<std::size_t>(std::distance(
+              stored_table->schema.columns.begin(), index_column));
+      BPlusTree tree{*state->buffer_pool, index.root_page_id};
+      auto changed = tree.erase(old_row[index_column_number].as_integer());
+      if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
+        return error(tree_error->message);
+      }
+      changed = tree.insert(heap_row.row[index_column_number].as_integer(),
+                            new_row_id);
+      if (const auto* tree_error = std::get_if<BPlusTreeError>(&changed)) {
+        return error(tree_error->message);
+      }
+      index.root_page_id = tree.root_page_id();
     }
     ++count;
   }

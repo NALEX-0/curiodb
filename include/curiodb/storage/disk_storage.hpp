@@ -37,10 +37,19 @@ class DiskStorage {
   [[nodiscard]] DiskStorageResult create_database(std::string name);
   [[nodiscard]] DiskStorageResult create_table(
       std::string_view database, const catalog::TableSchema& schema);
+  [[nodiscard]] DiskStorageResult create_index(
+      std::string_view database, std::string name, std::string_view table,
+      std::string_view column);
   [[nodiscard]] DiskStorageResult insert(std::string_view database,
                                          std::string_view table, Row row);
   [[nodiscard]] DiskRowsResult scan(std::string_view database,
                                     std::string_view table);
+  [[nodiscard]] DiskRowsResult index_scan(std::string_view database,
+                                          std::string_view table,
+                                          std::string_view column,
+                                          std::int64_t key);
+  [[nodiscard]] std::vector<catalog::StoredIndex> indexes(
+      std::string_view database, std::string_view table);
   [[nodiscard]] DiskDeleteResult delete_where(
       std::string_view database, std::string_view table,
       const std::function<bool(const Row&)>& predicate);

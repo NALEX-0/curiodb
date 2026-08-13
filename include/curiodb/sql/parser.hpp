@@ -40,9 +40,12 @@ class Parser {
       SourceLocation statement_location);
   [[nodiscard]] std::optional<Statement> parse_create_table(
       SourceLocation statement_location);
+  [[nodiscard]] std::optional<Statement> parse_create_index(
+      SourceLocation statement_location);
   [[nodiscard]] std::optional<Statement> parse_use();
   [[nodiscard]] std::optional<Statement> parse_insert();
   [[nodiscard]] std::optional<Statement> parse_select();
+  [[nodiscard]] std::optional<Statement> parse_explain();
   [[nodiscard]] std::optional<Statement> parse_delete();
   [[nodiscard]] std::optional<Statement> parse_update();
   [[nodiscard]] std::optional<ColumnDefinition> parse_column();

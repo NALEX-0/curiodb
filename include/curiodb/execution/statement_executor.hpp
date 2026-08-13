@@ -50,6 +50,10 @@ class StatementExecutor {
       const sql::DeleteStatement& statement);
   [[nodiscard]] ExecutionResult execute_update(
       const sql::UpdateStatement& statement);
+  [[nodiscard]] ExecutionResult execute_create_index(
+      const sql::CreateIndexStatement& statement);
+  [[nodiscard]] ExecutionResult execute_explain(
+      const sql::ExplainStatement& statement);
 
   catalog::Catalog& catalog_;
   storage::InMemoryStorage* in_memory_storage_{nullptr};

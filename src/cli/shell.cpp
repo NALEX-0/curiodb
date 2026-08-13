@@ -172,6 +172,7 @@ void Shell::execute_meta_command(const std::string& command) {
     output_ << ".databases       List databases\n"
                ".tables          List tables in the active database\n"
                ".schema <table>  Show a table schema\n"
+               "EXPLAIN SELECT   Show the selected query plan\n"
                ".help            Show this help\n"
                ".quit            Exit CurioDB\n";
     return;

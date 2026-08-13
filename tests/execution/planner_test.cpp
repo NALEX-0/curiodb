@@ -130,5 +130,26 @@ TEST(PlannerTest, RejectsWhereLiteralWithWrongType) {
             "column 'id': expected INT, received VARCHAR");
 }
 
+TEST(PlannerTest, ChoosesIndexScanForIndexedIntegerEquality) {
+  const auto result = plan_select(
+      sql::SelectStatement{
+          .columns = {{.name = "name"}},
+          .table_name = "employees",
+          .where = sql::Expression{sql::ComparisonExpression{
+              .column_name = "id",
+              .operation = sql::ComparisonOperator::Equal,
+              .value = {.value = std::int64_t{42}},
+          }}},
+      employee_schema(),
+      {catalog::StoredIndex{.name = "employees_id_idx",
+                            .column_name = "id",
+                            .root_page_id = storage::PageId{5}}});
+
+  ASSERT_TRUE(std::holds_alternative<PlanNode>(result));
+  EXPECT_NE(format_plan(std::get<PlanNode>(result))
+                .find("IndexScan(index=employees_id_idx, condition=id = 42)"),
+            std::string::npos);
+}
+
 }  // namespace
 }  // namespace curiodb::execution

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -9,9 +10,19 @@
 
 namespace curiodb::catalog {
 
+struct StoredIndex {
+  std::string name;
+  std::string column_name;
+  std::optional<storage::PageId> root_page_id;
+
+  [[nodiscard]] friend bool operator==(
+      const StoredIndex&, const StoredIndex&) = default;
+};
+
 struct StoredTable {
   TableSchema schema;
   std::vector<storage::PageId> page_ids;
+  std::vector<StoredIndex> indexes;
 
   [[nodiscard]] friend bool operator==(
       const StoredTable&, const StoredTable&) = default;

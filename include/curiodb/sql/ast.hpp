@@ -48,6 +48,16 @@ struct CreateTableStatement {
       const CreateTableStatement&, const CreateTableStatement&) = default;
 };
 
+struct CreateIndexStatement {
+  std::string name;
+  std::string table_name;
+  std::string column_name;
+  SourceLocation location;
+
+  [[nodiscard]] friend bool operator==(
+      const CreateIndexStatement&, const CreateIndexStatement&) = default;
+};
+
 using LiteralValue = std::variant<std::int64_t, double, std::string>;
 
 struct Literal {
@@ -162,6 +172,13 @@ struct DeleteStatement {
       const DeleteStatement&, const DeleteStatement&) = default;
 };
 
+struct ExplainStatement {
+  SelectStatement select;
+
+  [[nodiscard]] friend bool operator==(
+      const ExplainStatement&, const ExplainStatement&) = default;
+};
+
 struct UpdateStatement {
   std::string table_name;
   std::string column_name;
@@ -176,6 +193,7 @@ struct UpdateStatement {
 using Statement =
     std::variant<CreateDatabaseStatement, UseDatabaseStatement,
                  CreateTableStatement, InsertStatement, SelectStatement,
-                 DeleteStatement, UpdateStatement>;
+                 DeleteStatement, UpdateStatement, CreateIndexStatement,
+                 ExplainStatement>;
 
 }  // namespace curiodb::sql

@@ -31,6 +31,7 @@ add_library(curiodb_core
   src/storage/in_memory_storage.cpp
   src/storage/disk_manager.cpp
   src/storage/buffer_pool.cpp
+  src/storage/b_plus_tree.cpp
   src/storage/disk_storage.cpp
   src/storage/row_validation.cpp
   src/storage/serialization.cpp

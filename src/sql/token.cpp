@@ -18,6 +18,10 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "string literal";
     case TokenType::Create:
       return "CREATE";
+    case TokenType::Index:
+      return "INDEX";
+    case TokenType::On:
+      return "ON";
     case TokenType::Database:
       return "DATABASE";
     case TokenType::Use:
@@ -38,6 +42,8 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "VALUES";
     case TokenType::Select:
       return "SELECT";
+    case TokenType::Explain:
+      return "EXPLAIN";
     case TokenType::Delete:
       return "DELETE";
     case TokenType::Update:

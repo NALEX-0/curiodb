@@ -76,7 +76,7 @@ TEST(ParserTest, RejectsUnsupportedStatement) {
   const auto& error = expect_error(parse("employees;"));
 
   EXPECT_EQ(error.message,
-            "expected CREATE, USE, INSERT, SELECT, DELETE, or UPDATE, found 'employees'");
+            "expected CREATE, USE, INSERT, SELECT, DELETE, UPDATE, or EXPLAIN, found 'employees'");
   EXPECT_EQ(error.location, (SourceLocation{0, 1, 1}));
 }
 
@@ -91,7 +91,7 @@ TEST(ParserTest, RequiresCreateTarget) {
   const auto& error = expect_error(parse("CREATE company;"));
 
   EXPECT_EQ(error.message,
-            "expected DATABASE or TABLE after CREATE, found 'company'");
+            "expected DATABASE, TABLE, or INDEX after CREATE, found 'company'");
 }
 
 TEST(ParserTest, RejectsEmptyTableDefinition) {
@@ -304,6 +304,31 @@ TEST(ParserTest, ParsesUpdateWithoutWhere) {
   const auto& statement =
       std::get<UpdateStatement>(std::get<Statement>(result));
   EXPECT_FALSE(statement.where.has_value());
+}
+
+TEST(ParserTest, ParsesCreateIndex) {
+  auto result = Parser{Lexer{"CREATE INDEX employees_id_idx ON employees (id);"}
+                           .tokenize()}
+                    .parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& statement =
+      std::get<CreateIndexStatement>(std::get<Statement>(result));
+  EXPECT_EQ(statement.name, "employees_id_idx");
+  EXPECT_EQ(statement.table_name, "employees");
+  EXPECT_EQ(statement.column_name, "id");
+}
+
+TEST(ParserTest, ParsesExplainSelect) {
+  auto result = Parser{Lexer{"EXPLAIN SELECT name FROM employees WHERE id = 2;"}
+                           .tokenize()}
+                    .parse_statement();
+
+  ASSERT_TRUE(std::holds_alternative<Statement>(result));
+  const auto& explain =
+      std::get<ExplainStatement>(std::get<Statement>(result));
+  EXPECT_EQ(explain.select.table_name, "employees");
+  EXPECT_TRUE(explain.select.where.has_value());
 }
 
 }  // namespace

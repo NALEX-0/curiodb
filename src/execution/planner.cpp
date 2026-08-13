@@ -162,6 +162,10 @@ void format_node(const PlanNode& plan, std::size_t depth,
         using NodeType = std::decay_t<decltype(node)>;
         if constexpr (std::is_same_v<NodeType, SequentialScanPlan>) {
           output << "SequentialScan(table=" << node.table_name << ")\n";
+        } else if constexpr (std::is_same_v<NodeType, IndexScanPlan>) {
+          output << "IndexScan(index=" << node.index_name
+                 << ", condition=" << node.column_name << " = " << node.key
+                 << ")\n";
         } else if constexpr (std::is_same_v<NodeType, FilterPlan>) {
           output << "Filter(condition=" << node.description << ")\n";
           format_node(*node.child, depth + 1, output);
@@ -178,7 +182,8 @@ void format_node(const PlanNode& plan, std::size_t depth,
 }
 
 RowSet execute_rows(const PlanNode& plan, RowSet rows) {
-  if (std::holds_alternative<SequentialScanPlan>(plan.node)) {
+  if (std::holds_alternative<SequentialScanPlan>(plan.node) ||
+      std::holds_alternative<IndexScanPlan>(plan.node)) {
     return rows;
   }
   const auto& filter = std::get<FilterPlan>(plan.node);
@@ -189,9 +194,35 @@ RowSet execute_rows(const PlanNode& plan, RowSet rows) {
 }  // namespace
 
 PlanResult plan_select(const sql::SelectStatement& statement,
-                       const catalog::TableSchema& schema) {
-  auto current = std::make_shared<PlanNode>(
-      PlanNode{SequentialScanPlan{.table_name = schema.name}});
+                       const catalog::TableSchema& schema,
+                       const std::vector<catalog::StoredIndex>& indexes) {
+  std::shared_ptr<PlanNode> current;
+  if (statement.where.has_value()) {
+    const auto* comparison =
+        std::get_if<sql::ComparisonExpression>(&statement.where->node);
+    const auto index = comparison == nullptr
+                           ? indexes.end()
+                           : std::find_if(indexes.begin(), indexes.end(),
+                                          [comparison](const auto& candidate) {
+                                            return normalize(candidate.column_name) ==
+                                                       normalize(comparison->column_name) &&
+                                                   comparison->operation ==
+                                                       sql::ComparisonOperator::Equal &&
+                                                   std::holds_alternative<std::int64_t>(
+                                                       comparison->value.value);
+                                          });
+    if (index != indexes.end()) {
+      current = std::make_shared<PlanNode>(PlanNode{IndexScanPlan{
+          .table_name = schema.name,
+          .index_name = index->name,
+          .column_name = index->column_name,
+          .key = std::get<std::int64_t>(comparison->value.value)}});
+    }
+  }
+  if (current == nullptr) {
+    current = std::make_shared<PlanNode>(
+        PlanNode{SequentialScanPlan{.table_name = schema.name}});
+  }
   if (statement.where.has_value()) {
     auto bound_result = bind_expression(*statement.where, schema);
     if (const auto* error = std::get_if<PlannerError>(&bound_result)) {
@@ -205,13 +236,13 @@ PlanResult plan_select(const sql::SelectStatement& statement,
     }});
   }
 
-  std::vector<std::size_t> indexes;
+  std::vector<std::size_t> column_indexes;
   std::vector<std::string> names;
   if (statement.columns.empty()) {
-    indexes.reserve(schema.columns.size());
+    column_indexes.reserve(schema.columns.size());
     names.reserve(schema.columns.size());
     for (std::size_t index = 0; index < schema.columns.size(); ++index) {
-      indexes.push_back(index);
+      column_indexes.push_back(index);
       names.push_back(schema.columns[index].name);
     }
   } else {
@@ -233,11 +264,11 @@ PlanResult plan_select(const sql::SelectStatement& statement,
         return PlannerError{.message = "column '" + requested.name +
                                        "' selected more than once"};
       }
-      indexes.push_back(index);
+      column_indexes.push_back(index);
       names.push_back(column->name);
     }
   }
-  return PlanNode{ProjectionPlan{.column_indexes = std::move(indexes),
+  return PlanNode{ProjectionPlan{.column_indexes = std::move(column_indexes),
                                  .column_names = std::move(names),
                                  .child = std::move(current)}};
 }

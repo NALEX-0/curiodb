@@ -18,6 +18,7 @@ add_executable(curiodb_tests
   shell_test.cpp
   storage/disk_manager_test.cpp
   storage/buffer_pool_test.cpp
+  storage/b_plus_tree_test.cpp
   storage/in_memory_storage_test.cpp
   storage/in_memory_table_test.cpp
   storage/row_test.cpp

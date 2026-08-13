@@ -21,7 +21,7 @@ namespace curiodb::catalog {
 namespace {
 
 constexpr std::array<char, 8> kMagic{'C', 'U', 'R', 'I', 'O', 'D', 'B', 'C'};
-constexpr std::uint32_t kFormatVersion = 1;
+constexpr std::uint32_t kFormatVersion = 2;
 constexpr std::size_t kHeaderSize = kMagic.size() + sizeof(std::uint32_t) * 2;
 
 CatalogStorageError error(CatalogStorageErrorCode code, std::string message) {
@@ -94,6 +94,22 @@ std::variant<std::vector<std::byte>, CatalogStorageError> serialize(
     for (const storage::PageId page_id : table.page_ids) {
       append_integer(output, page_id.value);
     }
+    if (table.indexes.size() > std::numeric_limits<std::uint32_t>::max()) {
+      return error(CatalogStorageErrorCode::MetadataTooLarge,
+                   "table contains too many indexes");
+    }
+    append_integer(output, static_cast<std::uint32_t>(table.indexes.size()));
+    for (const auto& index : table.indexes) {
+      if (!append_string(output, index.name) ||
+          !append_string(output, index.column_name)) {
+        return error(CatalogStorageErrorCode::MetadataTooLarge,
+                     "index name is too large");
+      }
+      append_integer(output,
+                     index.root_page_id.value_or(
+                         storage::PageId{std::numeric_limits<std::uint32_t>::max()})
+                         .value);
+    }
   }
   if (output.size() > storage::kPageSize - kHeaderSize) {
     return error(CatalogStorageErrorCode::MetadataTooLarge,
@@ -146,7 +162,8 @@ class Reader {
   std::size_t position_{0};
 };
 
-CatalogLoadResult deserialize(std::span<const std::byte> bytes) {
+CatalogLoadResult deserialize(std::span<const std::byte> bytes,
+                              std::uint32_t version) {
   Reader reader{bytes};
   StoredCatalog catalog;
   std::uint32_t table_count = 0;
@@ -203,6 +220,29 @@ CatalogLoadResult deserialize(std::span<const std::byte> bytes) {
                      "table page identifier is invalid");
       }
       table.page_ids.push_back(storage::PageId{page_id});
+    }
+    if (version >= 2) {
+      std::uint32_t index_count = 0;
+      if (!reader.read_integer(index_count)) {
+        return error(CatalogStorageErrorCode::CorruptMetadata,
+                     "table index list is truncated");
+      }
+      table.indexes.reserve(index_count);
+      for (std::uint32_t index_number = 0; index_number < index_count;
+           ++index_number) {
+        StoredIndex index;
+        std::uint32_t root_page_id = 0;
+        if (!reader.read_string(index.name) ||
+            !reader.read_string(index.column_name) ||
+            !reader.read_integer(root_page_id) || root_page_id == 0) {
+          return error(CatalogStorageErrorCode::CorruptMetadata,
+                       "index metadata is invalid");
+        }
+        if (root_page_id != std::numeric_limits<std::uint32_t>::max()) {
+          index.root_page_id = storage::PageId{root_page_id};
+        }
+        table.indexes.push_back(std::move(index));
+      }
     }
     catalog.tables.push_back(std::move(table));
   }
@@ -290,7 +330,7 @@ CatalogLoadResult load_catalog(storage::DiskManager& disk_manager) {
     return error(CatalogStorageErrorCode::CorruptMetadata,
                  "catalog header is truncated");
   }
-  if (version != kFormatVersion) {
+  if (version != 1 && version != kFormatVersion) {
     return error(CatalogStorageErrorCode::UnsupportedVersion,
                  "catalog format version is not supported");
   }
@@ -299,7 +339,8 @@ CatalogLoadResult load_catalog(storage::DiskManager& disk_manager) {
                  "catalog payload size is invalid");
   }
   return deserialize(std::span<const std::byte>{page}.subspan(
-      kHeaderSize, payload_size));
+                         kHeaderSize, payload_size),
+                     version);
 }
 
 }  // namespace curiodb::catalog

@@ -217,3 +217,70 @@ SELECT * FROM employees;
   EXPECT_NE(output.str().find("Robert"), std::string::npos);
   EXPECT_NE(output.str().find("60000"), std::string::npos);
 }
+
+TEST(ShellTest, CreatesPersistentIndexAndMaintainsNewInserts) {
+  TemporaryDataDirectory directory;
+  {
+    std::istringstream input{R"(CREATE DATABASE company;
+USE company;
+CREATE TABLE employees (id INT, name VARCHAR(100));
+INSERT INTO employees VALUES (1, 'Alice');
+CREATE INDEX employees_id_idx ON employees (id);
+INSERT INTO employees VALUES (2, 'Bob');
+INSERT INTO employees VALUES (2, 'Duplicate');
+.quit
+)"};
+    std::ostringstream output;
+    curiodb::cli::Shell shell{input, output, directory.path()};
+    ASSERT_EQ(shell.run(), 0) << output.str();
+    EXPECT_NE(output.str().find("Index 'employees_id_idx' created."),
+              std::string::npos);
+    EXPECT_NE(output.str().find("duplicate value for unique index"),
+              std::string::npos);
+  }
+
+  std::istringstream input{R"(USE company;
+INSERT INTO employees VALUES (1, 'Duplicate after reopen');
+SELECT * FROM employees;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell reopened{input, output, directory.path()};
+  ASSERT_EQ(reopened.run(), 0) << output.str();
+  EXPECT_NE(output.str().find("duplicate value for unique index"),
+            std::string::npos);
+  EXPECT_NE(output.str().find("Alice"), std::string::npos);
+  EXPECT_NE(output.str().find("Bob"), std::string::npos);
+  EXPECT_NE(output.str().find("2 rows selected."), std::string::npos);
+}
+
+TEST(ShellTest, UsesAndMaintainsIndexAcrossMutations) {
+  TemporaryDataDirectory directory;
+  std::istringstream input{R"(CREATE DATABASE company;
+USE company;
+CREATE TABLE employees (id INT, name VARCHAR(100));
+INSERT INTO employees VALUES (1, 'Alice');
+INSERT INTO employees VALUES (2, 'Bob');
+CREATE INDEX employees_id_idx ON employees (id);
+EXPLAIN SELECT name FROM employees WHERE id = 2;
+SELECT name FROM employees WHERE id = 2;
+DELETE FROM employees WHERE id = 1;
+INSERT INTO employees VALUES (1, 'Ann');
+UPDATE employees SET id = 3 WHERE id = 2;
+INSERT INTO employees VALUES (2, 'Ben');
+SELECT * FROM employees WHERE id = 3;
+SELECT * FROM employees;
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell shell{input, output, directory.path()};
+
+  ASSERT_EQ(shell.run(), 0) << output.str();
+  const std::string result = output.str();
+  EXPECT_NE(result.find("IndexScan(index=employees_id_idx, condition=id = 2)"),
+            std::string::npos);
+  EXPECT_NE(result.find("Bob"), std::string::npos);
+  EXPECT_NE(result.find("Ann"), std::string::npos);
+  EXPECT_NE(result.find("Ben"), std::string::npos);
+  EXPECT_EQ(result.find("duplicate value for unique index"), std::string::npos);
+}

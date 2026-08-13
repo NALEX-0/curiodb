@@ -54,10 +54,12 @@ ParseResult Parser::parse_statement() {
     statement = parse_delete();
   } else if (check(TokenType::Update)) {
     statement = parse_update();
+  } else if (check(TokenType::Explain)) {
+    statement = parse_explain();
   } else if (check(TokenType::Invalid)) {
     report_error(current(), "invalid token " + found_token(current()));
   } else {
-    report_error(current(), "expected CREATE, USE, INSERT, SELECT, DELETE, or UPDATE, found " +
+    report_error(current(), "expected CREATE, USE, INSERT, SELECT, DELETE, UPDATE, or EXPLAIN, found " +
                                 found_token(current()));
   }
 
@@ -122,9 +124,36 @@ std::optional<Statement> Parser::parse_create() {
   if (match(TokenType::Table)) {
     return parse_create_table(location);
   }
-  report_error(current(), "expected DATABASE or TABLE after CREATE, found " +
+  if (match(TokenType::Index)) {
+    return parse_create_index(location);
+  }
+  report_error(current(), "expected DATABASE, TABLE, or INDEX after CREATE, found " +
                               found_token(current()));
   return std::nullopt;
+}
+
+std::optional<Statement> Parser::parse_create_index(
+    SourceLocation statement_location) {
+  const auto name =
+      consume(TokenType::Identifier, "expected index name after INDEX");
+  if (!name.has_value() || !consume(TokenType::On, "expected ON after index name")) {
+    return std::nullopt;
+  }
+  const auto table =
+      consume(TokenType::Identifier, "expected table name after ON");
+  if (!table.has_value() ||
+      !consume(TokenType::LeftParen, "expected '(' after table name")) {
+    return std::nullopt;
+  }
+  const auto column = consume(TokenType::Identifier, "expected column name");
+  if (!column.has_value() ||
+      !consume(TokenType::RightParen, "expected ')' after column name")) {
+    return std::nullopt;
+  }
+  return Statement{CreateIndexStatement{.name = name->lexeme,
+                                        .table_name = table->lexeme,
+                                        .column_name = column->lexeme,
+                                        .location = statement_location}};
 }
 
 std::optional<Statement> Parser::parse_create_database(
@@ -258,6 +287,21 @@ std::optional<Statement> Parser::parse_select() {
       .where = std::move(where),
       .location = location,
   }};
+}
+
+std::optional<Statement> Parser::parse_explain() {
+  advance();
+  if (!check(TokenType::Select)) {
+    report_error(current(), "expected SELECT after EXPLAIN, found " +
+                                found_token(current()));
+    return std::nullopt;
+  }
+  auto selected = parse_select();
+  if (!selected.has_value()) {
+    return std::nullopt;
+  }
+  return Statement{ExplainStatement{
+      .select = std::get<SelectStatement>(std::move(*selected))}};
 }
 
 std::optional<Statement> Parser::parse_delete() {

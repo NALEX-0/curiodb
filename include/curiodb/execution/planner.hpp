@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "curiodb/catalog/catalog.hpp"
+#include "curiodb/catalog/catalog_storage.hpp"
 #include "curiodb/execution/operators.hpp"
 #include "curiodb/sql/ast.hpp"
 
@@ -14,6 +15,13 @@ namespace curiodb::execution {
 
 struct SequentialScanPlan {
   std::string table_name;
+};
+
+struct IndexScanPlan {
+  std::string table_name;
+  std::string index_name;
+  std::string column_name;
+  std::int64_t key;
 };
 
 struct PlanNode;
@@ -31,7 +39,8 @@ struct ProjectionPlan {
 };
 
 struct PlanNode {
-  using Node = std::variant<SequentialScanPlan, FilterPlan, ProjectionPlan>;
+  using Node =
+      std::variant<SequentialScanPlan, IndexScanPlan, FilterPlan, ProjectionPlan>;
   Node node;
 };
 
@@ -43,7 +52,8 @@ using PlanResult = std::variant<PlanNode, PlannerError>;
 
 [[nodiscard]] PlanResult plan_select(
     const sql::SelectStatement& statement,
-    const catalog::TableSchema& schema);
+    const catalog::TableSchema& schema,
+    const std::vector<catalog::StoredIndex>& indexes = {});
 [[nodiscard]] std::string format_plan(const PlanNode& plan);
 [[nodiscard]] std::vector<std::vector<std::string>> execute_plan(
     const PlanNode& plan, RowSet rows);
