@@ -13,6 +13,7 @@ add_executable(curiodb_tests
   catalog/catalog_test.cpp
   catalog/catalog_storage_test.cpp
   execution/operators_test.cpp
+  execution/planner_test.cpp
   execution/statement_executor_test.cpp
   shell_test.cpp
   storage/disk_manager_test.cpp

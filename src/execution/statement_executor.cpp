@@ -10,12 +10,12 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "curiodb/execution/operators.hpp"
+#include "curiodb/execution/planner.hpp"
 #include "curiodb/storage/row.hpp"
 #include "curiodb/storage/row_validation.hpp"
 #include "curiodb/types/value.hpp"
@@ -277,6 +277,11 @@ ExecutionResult StatementExecutor::execute_select(
     return {.success = false,
             .message = "table '" + statement.table_name + "' does not exist"};
   }
+  auto planned = plan_select(statement, *schema);
+  if (const auto* error = std::get_if<PlannerError>(&planned)) {
+    return {.success = false, .message = error->message};
+  }
+  const PlanNode plan = std::get<PlanNode>(std::move(planned));
   std::vector<storage::Row> disk_rows;
   const storage::InMemoryTable* table = nullptr;
   if (disk_storage_ != nullptr) {
@@ -293,116 +298,6 @@ ExecutionResult StatementExecutor::execute_select(
     }
   }
 
-  QueryResult query;
-  std::optional<FilterOperator::Predicate> predicate;
-  if (statement.where.has_value()) {
-    std::string binding_error;
-    std::function<std::optional<FilterOperator::Predicate>(
-        const sql::Expression&)>
-        bind_expression;
-    bind_expression = [&](const sql::Expression& expression)
-        -> std::optional<FilterOperator::Predicate> {
-      if (const auto* comparison =
-              std::get_if<sql::ComparisonExpression>(&expression.node)) {
-        const std::string filter_name = normalize(comparison->column_name);
-        const auto column = std::find_if(
-            schema->columns.begin(), schema->columns.end(),
-            [&filter_name](const catalog::ColumnSchema& candidate) {
-              return normalize(candidate.name) == filter_name;
-            });
-        if (column == schema->columns.end()) {
-          binding_error =
-              "column '" + comparison->column_name + "' does not exist";
-          return std::nullopt;
-        }
-        const auto index = static_cast<std::size_t>(
-            std::distance(schema->columns.begin(), column));
-        const Value comparison_value = value_from_literal(comparison->value);
-        if (comparison_value.type() != column->type.kind) {
-          binding_error = "column '" + column->name + "': expected " +
-                          format_data_type(column->type) + ", received " +
-                          value_type_name(comparison_value.type());
-          return std::nullopt;
-        }
-        const sql::ComparisonOperator operation = comparison->operation;
-        return FilterOperator::Predicate{
-            [index, operation,
-             comparison_value](const storage::Row& row) {
-              return matches(row[index], operation, comparison_value);
-            }};
-      }
-
-      const auto& logical_pointer =
-          std::get<std::shared_ptr<sql::LogicalExpression>>(expression.node);
-      if (logical_pointer == nullptr) {
-        binding_error = "invalid WHERE expression";
-        return std::nullopt;
-      }
-      const auto& logical = *logical_pointer;
-      auto left = bind_expression(logical.left);
-      if (!left.has_value()) {
-        return std::nullopt;
-      }
-      auto right = bind_expression(logical.right);
-      if (!right.has_value()) {
-        return std::nullopt;
-      }
-      if (logical.operation == sql::LogicalOperator::And) {
-        return FilterOperator::Predicate{
-            [left = std::move(*left), right = std::move(*right)](
-                const storage::Row& row) {
-              return left(row) && right(row);
-            }};
-      }
-      return FilterOperator::Predicate{
-          [left = std::move(*left), right = std::move(*right)](
-              const storage::Row& row) {
-            return left(row) || right(row);
-          }};
-    };
-
-    predicate = bind_expression(*statement.where);
-    if (!predicate.has_value()) {
-      return {.success = false, .message = std::move(binding_error)};
-    }
-  }
-
-  std::vector<std::size_t> column_indexes;
-  if (statement.columns.empty()) {
-    column_indexes.reserve(schema->columns.size());
-    for (std::size_t index = 0; index < schema->columns.size(); ++index) {
-      column_indexes.push_back(index);
-    }
-  } else {
-    column_indexes.reserve(statement.columns.size());
-    std::unordered_set<std::size_t> selected_indexes;
-    for (const auto& selected : statement.columns) {
-      const std::string selected_name = normalize(selected.name);
-      const auto column = std::find_if(
-          schema->columns.begin(), schema->columns.end(),
-          [&selected_name](const catalog::ColumnSchema& candidate) {
-            return normalize(candidate.name) == selected_name;
-          });
-      if (column == schema->columns.end()) {
-        return {.success = false,
-                .message = "column '" + selected.name + "' does not exist"};
-      }
-      const auto index = static_cast<std::size_t>(
-          std::distance(schema->columns.begin(), column));
-      if (!selected_indexes.insert(index).second) {
-        return {.success = false,
-                .message = "column '" + selected.name +
-                           "' selected more than once"};
-      }
-      column_indexes.push_back(index);
-    }
-  }
-
-  query.columns.reserve(column_indexes.size());
-  for (const std::size_t index : column_indexes) {
-    query.columns.push_back(schema->columns[index].name);
-  }
-
   RowSet rows;
   if (table != nullptr) {
     rows = SequentialScanOperator{*table}.execute();
@@ -412,11 +307,9 @@ ExecutionResult StatementExecutor::execute_select(
       rows.emplace_back(std::cref(row));
     }
   }
-  if (predicate.has_value()) {
-    rows = FilterOperator{std::move(rows), std::move(*predicate)}.execute();
-  }
-  query.rows =
-      ProjectionOperator{std::move(rows), std::move(column_indexes)}.execute();
+  const auto& projection = std::get<ProjectionPlan>(plan.node);
+  QueryResult query{.columns = projection.column_names,
+                    .rows = execute_plan(plan, std::move(rows))};
 
   const std::size_t count = query.rows.size();
   return {

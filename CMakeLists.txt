@@ -21,6 +21,7 @@ add_library(curiodb_core
   src/catalog/catalog_storage.cpp
   src/cli/shell.cpp
   src/execution/operators.cpp
+  src/execution/planner.cpp
   src/execution/statement_executor.cpp
   src/sql/lexer.cpp
   src/sql/parser.cpp
