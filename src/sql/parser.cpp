@@ -366,9 +366,46 @@ std::optional<ColumnDefinition> Parser::parse_column() {
   if (!type.has_value()) {
     return std::nullopt;
   }
+  bool primary_key = false;
+  bool unique = false;
+  bool not_null = false;
+  while (check(TokenType::Primary) || check(TokenType::Unique) ||
+         check(TokenType::Not)) {
+    if (match(TokenType::Primary)) {
+      if (primary_key) {
+        report_error(current(), "duplicate PRIMARY KEY constraint");
+        return std::nullopt;
+      }
+      if (!consume(TokenType::Key, "expected KEY after PRIMARY")) {
+        return std::nullopt;
+      }
+      primary_key = true;
+      unique = true;
+      not_null = true;
+    } else if (match(TokenType::Unique)) {
+      if (unique) {
+        report_error(current(), "duplicate UNIQUE constraint");
+        return std::nullopt;
+      }
+      unique = true;
+    } else {
+      advance();
+      if (not_null) {
+        report_error(current(), "duplicate NOT NULL constraint");
+        return std::nullopt;
+      }
+      if (!consume(TokenType::Null, "expected NULL after NOT")) {
+        return std::nullopt;
+      }
+      not_null = true;
+    }
+  }
   return ColumnDefinition{
       .name = name->lexeme,
       .type = std::move(*type),
+      .primary_key = primary_key,
+      .unique = unique,
+      .not_null = not_null,
       .location = name->location,
   };
 }

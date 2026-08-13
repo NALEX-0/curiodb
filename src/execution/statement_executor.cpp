@@ -206,7 +206,11 @@ ExecutionResult StatementExecutor::execute_create_table(
   std::vector<catalog::ColumnSchema> columns;
   columns.reserve(statement.columns.size());
   for (const auto& column : statement.columns) {
-    columns.push_back({.name = column.name, .type = column.type});
+    columns.push_back({.name = column.name,
+                       .type = column.type,
+                       .primary_key = column.primary_key,
+                       .unique = column.unique,
+                       .not_null = column.not_null});
   }
   const auto result = catalog_.create_table(statement.name, std::move(columns));
   if (result.has_value()) {

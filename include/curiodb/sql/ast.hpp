@@ -16,6 +16,9 @@ namespace curiodb::sql {
 struct ColumnDefinition {
   std::string name;
   DataType type;
+  bool primary_key{false};
+  bool unique{false};
+  bool not_null{false};
   SourceLocation location;
 
   [[nodiscard]] friend bool operator==(

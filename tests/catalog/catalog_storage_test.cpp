@@ -57,7 +57,10 @@ StoredCatalog sample_catalog() {
               {.name = "employees",
                .columns =
                    {{.name = "id",
-                     .type = {.kind = DataTypeKind::Integer}},
+                     .type = {.kind = DataTypeKind::Integer},
+                     .primary_key = true,
+                     .unique = true,
+                     .not_null = true},
                     {.name = "name",
                      .type = {.kind = DataTypeKind::Varchar, .length = 100}},
                     {.name = "salary",

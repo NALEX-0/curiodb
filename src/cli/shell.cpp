@@ -228,6 +228,16 @@ void Shell::execute_meta_command(const std::string& command) {
     for (std::size_t index = 0; index < table->columns.size(); ++index) {
       const auto& column = table->columns[index];
       output_ << "  " << column.name << ' ' << format_data_type(column.type);
+      if (column.primary_key) {
+        output_ << " PRIMARY KEY";
+      } else {
+        if (column.unique) {
+          output_ << " UNIQUE";
+        }
+        if (column.not_null) {
+          output_ << " NOT NULL";
+        }
+      }
       output_ << (index + 1 < table->columns.size() ? ",\n" : "\n");
     }
     output_ << ");\n";

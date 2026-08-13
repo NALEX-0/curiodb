@@ -65,6 +65,31 @@ TEST(ParserTest, ParsesCreateTable) {
   EXPECT_EQ(table.columns[1].location, (SourceLocation{37, 3, 3}));
 }
 
+TEST(ParserTest, ParsesColumnConstraints) {
+  const auto result = parse(
+      "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE, "
+      "name VARCHAR(50) NOT NULL);");
+  const Statement statement = expect_success(result);
+  const auto& table = std::get<CreateTableStatement>(statement);
+
+  ASSERT_EQ(table.columns.size(), 3U);
+  EXPECT_TRUE(table.columns[0].primary_key);
+  EXPECT_TRUE(table.columns[0].unique);
+  EXPECT_TRUE(table.columns[0].not_null);
+  EXPECT_TRUE(table.columns[1].unique);
+  EXPECT_FALSE(table.columns[1].primary_key);
+  EXPECT_TRUE(table.columns[2].not_null);
+}
+
+TEST(ParserTest, RequiresKeyAndNullInColumnConstraints) {
+  EXPECT_EQ(expect_error(parse("CREATE TABLE users (id INT PRIMARY);"))
+                .message,
+            "expected KEY after PRIMARY, found ')'");
+  EXPECT_EQ(expect_error(parse("CREATE TABLE users (id INT NOT);"))
+                .message,
+            "expected NULL after NOT, found ')'");
+}
+
 TEST(ParserTest, RequiresSemicolon) {
   const auto& error = expect_error(parse("USE company"));
 

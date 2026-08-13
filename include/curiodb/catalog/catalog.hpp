@@ -13,6 +13,9 @@ namespace curiodb::catalog {
 struct ColumnSchema {
   std::string name;
   DataType type;
+  bool primary_key{false};
+  bool unique{false};
+  bool not_null{false};
 
   [[nodiscard]] friend bool operator==(
       const ColumnSchema&, const ColumnSchema&) = default;
@@ -34,6 +37,7 @@ enum class CatalogErrorCode {
   TableAlreadyExists,
   EmptyTable,
   DuplicateColumn,
+  MultiplePrimaryKeys,
 };
 
 struct CatalogError {

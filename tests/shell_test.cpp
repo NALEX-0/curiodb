@@ -154,6 +154,49 @@ SELECT name FROM employees WHERE id >= 2;
   EXPECT_EQ(result.find("Alice"), std::string::npos) << result;
 }
 
+TEST(ShellTest, EnforcesAndPersistsPrimaryKeyAndUniqueConstraints) {
+  TemporaryDataDirectory directory;
+  {
+    std::istringstream input{R"(CREATE DATABASE app;
+USE app;
+CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE);
+INSERT INTO users VALUES (1, 'alice@example.com');
+INSERT INTO users VALUES (1, 'other@example.com');
+INSERT INTO users VALUES (2, 'alice@example.com');
+INSERT INTO users VALUES (2, 'bob@example.com');
+UPDATE users SET email = 'alice@example.com' WHERE id = 2;
+EXPLAIN SELECT email FROM users WHERE id = 1;
+.schema users
+.quit
+)"};
+    std::ostringstream output;
+    curiodb::cli::Shell shell{input, output, directory.path()};
+    ASSERT_EQ(shell.run(), 0) << output.str();
+    const std::string result = output.str();
+    EXPECT_NE(result.find("duplicate value for PRIMARY KEY 'id'"),
+              std::string::npos) << result;
+    EXPECT_NE(result.find("duplicate value for UNIQUE column 'email'"),
+              std::string::npos) << result;
+    EXPECT_NE(result.find("IndexScan("), std::string::npos) << result;
+    EXPECT_NE(result.find("id INT PRIMARY KEY"), std::string::npos) << result;
+    EXPECT_NE(result.find("email VARCHAR(100) UNIQUE"), std::string::npos)
+        << result;
+  }
+
+  std::istringstream input{R"(USE app;
+INSERT INTO users VALUES (1, 'again@example.com');
+INSERT INTO users VALUES (3, 'alice@example.com');
+SELECT * FROM users;
+.schema users
+.quit
+)"};
+  std::ostringstream output;
+  curiodb::cli::Shell reopened{input, output, directory.path()};
+  ASSERT_EQ(reopened.run(), 0) << output.str();
+  EXPECT_NE(output.str().find("id INT PRIMARY KEY"), std::string::npos);
+  EXPECT_NE(output.str().find("2 rows selected."), std::string::npos);
+}
+
 TEST(ShellTest, DeletesMatchingRowsAndPersistsDeletion) {
   TemporaryDataDirectory directory;
   {

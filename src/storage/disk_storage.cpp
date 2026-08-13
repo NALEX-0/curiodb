@@ -129,8 +129,17 @@ DiskStorageResult DiskStorage::create_table(
   if (find_table(*state, schema.name) != nullptr) {
     return error("table storage already exists");
   }
-  state->catalog.tables.push_back(
-      catalog::StoredTable{.schema = schema, .page_ids = {}});
+  catalog::StoredTable stored_table{.schema = schema, .page_ids = {}};
+  for (const auto& column : schema.columns) {
+    if ((column.primary_key || column.unique) &&
+        column.type.kind == DataTypeKind::Integer) {
+      stored_table.indexes.push_back(
+          {.name = "__curiodb_" + schema.name + "_" + column.name + "_key",
+           .column_name = column.name,
+           .root_page_id = std::nullopt});
+    }
+  }
+  state->catalog.tables.push_back(std::move(stored_table));
   const auto stored = catalog::store_catalog(*state->disk, state->catalog);
   if (std::holds_alternative<catalog::CatalogStorageError>(stored)) {
     state->catalog.tables.pop_back();
@@ -213,6 +222,26 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
       validation.has_value()) {
     return error(validation->message);
   }
+  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
+  auto existing_rows = heap.scan();
+  if (const auto* scan_error = std::get_if<TableHeapError>(&existing_rows)) {
+    return wrapped_error(*scan_error);
+  }
+  for (std::size_t column_index = 0;
+       column_index < stored_table->schema.columns.size(); ++column_index) {
+    const auto& column = stored_table->schema.columns[column_index];
+    if (!(column.primary_key || column.unique) ||
+        column.type.kind == DataTypeKind::Integer) {
+      continue;
+    }
+    for (const auto& heap_row : std::get<std::vector<HeapRow>>(existing_rows)) {
+      if (heap_row.row[column_index] == row[column_index]) {
+        return error("duplicate value for " +
+                     std::string{column.primary_key ? "PRIMARY KEY '" : "UNIQUE column '"} +
+                     column.name + "'");
+      }
+    }
+  }
   for (const auto& index : stored_table->indexes) {
     const auto column = std::find_if(
         stored_table->schema.columns.begin(), stored_table->schema.columns.end(),
@@ -227,10 +256,16 @@ DiskStorageResult DiskStorage::insert(std::string_view database,
       return error(tree_error->message);
     }
     if (std::get<std::optional<RowId>>(existing).has_value()) {
-      return error("duplicate value for unique index '" + index.name + "'");
+      return error("duplicate value for " +
+                   std::string{column->primary_key ? "PRIMARY KEY '"
+                                                   : column->unique
+                                                         ? "UNIQUE column '"
+                                                         : "unique index '"} +
+                   (column->primary_key || column->unique ? column->name
+                                                          : index.name) +
+                   "'");
     }
   }
-  TableHeap heap{*state->buffer_pool, *state->disk, stored_table->page_ids};
   const auto inserted = heap.insert(row);
   if (std::holds_alternative<TableHeapError>(inserted)) {
     return wrapped_error(std::get<TableHeapError>(inserted));
@@ -398,6 +433,31 @@ DiskUpdateResult DiskStorage::update_where(
   if (const auto* scan_error = std::get_if<TableHeapError>(&scanned)) {
     return wrapped_error(*scan_error);
   }
+  const auto& changed_column = stored_table->schema.columns[column_index];
+  if (changed_column.primary_key || changed_column.unique) {
+    std::size_t matching_count = 0;
+    const HeapRow* matching_row = nullptr;
+    for (const auto& candidate : std::get<std::vector<HeapRow>>(scanned)) {
+      if (predicate(candidate.row)) {
+        ++matching_count;
+        matching_row = &candidate;
+      }
+    }
+    const bool conflicts_with_other_row = std::any_of(
+        std::get<std::vector<HeapRow>>(scanned).begin(),
+        std::get<std::vector<HeapRow>>(scanned).end(),
+        [&](const HeapRow& candidate) {
+          return (matching_row == nullptr || candidate.id != matching_row->id) &&
+                 candidate.row[column_index] == value;
+        });
+    if (matching_count > 1 || conflicts_with_other_row) {
+      return error("duplicate value for " +
+                   std::string{changed_column.primary_key
+                                   ? "PRIMARY KEY '"
+                                   : "UNIQUE column '"} +
+                   changed_column.name + "'");
+    }
+  }
   std::size_t count = 0;
   for (auto& heap_row : std::get<std::vector<HeapRow>>(scanned)) {
     if (!predicate(heap_row.row)) {
@@ -415,7 +475,8 @@ DiskUpdateResult DiskStorage::update_where(
       const std::size_t index_column_number =
           static_cast<std::size_t>(std::distance(
               stored_table->schema.columns.begin(), index_column));
-      const std::int64_t old_key = old_row[index_column_number].as_integer();
+      const std::int64_t old_key =
+          old_row[index_column_number].as_integer();
       const std::int64_t new_key =
           heap_row.row[index_column_number].as_integer();
       if (old_key != new_key) {
@@ -425,7 +486,16 @@ DiskUpdateResult DiskStorage::update_where(
           return error(tree_error->message);
         }
         if (std::get<std::optional<RowId>>(existing).has_value()) {
-          return error("duplicate value for unique index '" + index.name + "'");
+          return error("duplicate value for " +
+                       std::string{index_column->primary_key
+                                       ? "PRIMARY KEY '"
+                                       : index_column->unique
+                                             ? "UNIQUE column '"
+                                             : "unique index '"} +
+                       (index_column->primary_key || index_column->unique
+                            ? index_column->name
+                            : index.name) +
+                       "'");
         }
       }
     }

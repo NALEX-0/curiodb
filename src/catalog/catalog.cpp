@@ -76,6 +76,7 @@ CatalogResult Catalog::create_table(std::string name,
   }
 
   std::unordered_set<std::string> column_names;
+  std::size_t primary_key_count = 0;
   for (const auto& column : columns) {
     if (column.name.empty()) {
       return error(CatalogErrorCode::InvalidName,
@@ -85,6 +86,13 @@ CatalogResult Catalog::create_table(std::string name,
       return error(CatalogErrorCode::DuplicateColumn,
                    "duplicate column '" + column.name + "'");
     }
+    if (column.primary_key) {
+      ++primary_key_count;
+    }
+  }
+  if (primary_key_count > 1) {
+    return error(CatalogErrorCode::MultiplePrimaryKeys,
+                 "table may contain only one PRIMARY KEY");
   }
 
   database->tables.emplace(

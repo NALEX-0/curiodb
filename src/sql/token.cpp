@@ -34,6 +34,16 @@ std::string_view token_type_name(TokenType type) noexcept {
       return "DOUBLE";
     case TokenType::Varchar:
       return "VARCHAR";
+    case TokenType::Primary:
+      return "PRIMARY";
+    case TokenType::Key:
+      return "KEY";
+    case TokenType::Unique:
+      return "UNIQUE";
+    case TokenType::Not:
+      return "NOT";
+    case TokenType::Null:
+      return "NULL";
     case TokenType::Insert:
       return "INSERT";
     case TokenType::Into:

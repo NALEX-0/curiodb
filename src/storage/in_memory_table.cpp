@@ -25,6 +25,23 @@ RowValidationResult InMemoryTable::insert(Row row) {
       validation_error.has_value()) {
     return validation_error;
   }
+  for (std::size_t column_index = 0; column_index < schema_.columns.size();
+       ++column_index) {
+    const auto& column = schema_.columns[column_index];
+    if (!(column.primary_key || column.unique)) {
+      continue;
+    }
+    if (std::any_of(rows_.begin(), rows_.end(), [&](const Row& existing) {
+          return existing[column_index] == row[column_index];
+        })) {
+      return RowValidationError{
+          .code = RowValidationErrorCode::TypeMismatch,
+          .message = "duplicate value for " +
+                     std::string{column.primary_key ? "PRIMARY KEY '"
+                                                    : "UNIQUE column '"} +
+                     column.name + "'"};
+    }
+  }
   rows_.push_back(std::move(row));
   return std::nullopt;
 }

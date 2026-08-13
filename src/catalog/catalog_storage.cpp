@@ -21,7 +21,7 @@ namespace curiodb::catalog {
 namespace {
 
 constexpr std::array<char, 8> kMagic{'C', 'U', 'R', 'I', 'O', 'D', 'B', 'C'};
-constexpr std::uint32_t kFormatVersion = 2;
+constexpr std::uint32_t kFormatVersion = 3;
 constexpr std::size_t kHeaderSize = kMagic.size() + sizeof(std::uint32_t) * 2;
 
 CatalogStorageError error(CatalogStorageErrorCode code, std::string message) {
@@ -88,6 +88,11 @@ std::variant<std::vector<std::byte>, CatalogStorageError> serialize(
                      "column length is too large");
       }
       append_integer(output, static_cast<std::uint32_t>(length));
+      std::uint8_t constraints = 0;
+      constraints |= column.primary_key ? 1U : 0U;
+      constraints |= column.unique ? 2U : 0U;
+      constraints |= column.not_null ? 4U : 0U;
+      append_integer(output, constraints);
     }
     append_integer(output,
                    static_cast<std::uint32_t>(table.page_ids.size()));
@@ -204,6 +209,16 @@ CatalogLoadResult deserialize(std::span<const std::byte> bytes,
       } else if (length != 0) {
         return error(CatalogStorageErrorCode::CorruptMetadata,
                      "fixed-size type has an unexpected length");
+      }
+      if (version >= 3) {
+        std::uint8_t constraints = 0;
+        if (!reader.read_integer(constraints) || constraints > 7U) {
+          return error(CatalogStorageErrorCode::CorruptMetadata,
+                       "column constraints are invalid");
+        }
+        column.primary_key = (constraints & 1U) != 0;
+        column.unique = (constraints & 2U) != 0;
+        column.not_null = (constraints & 4U) != 0;
       }
       table.schema.columns.push_back(std::move(column));
     }
@@ -330,7 +345,7 @@ CatalogLoadResult load_catalog(storage::DiskManager& disk_manager) {
     return error(CatalogStorageErrorCode::CorruptMetadata,
                  "catalog header is truncated");
   }
-  if (version != 1 && version != kFormatVersion) {
+  if (version < 1 || version > kFormatVersion) {
     return error(CatalogStorageErrorCode::UnsupportedVersion,
                  "catalog format version is not supported");
   }
