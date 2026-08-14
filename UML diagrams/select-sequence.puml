@@ -1,0 +1,53 @@
+@startuml CurioDB SELECT Sequence
+title Indexed SELECT Query Sequence
+
+skinparam shadowing false
+autonumber
+
+actor User
+participant "CLI Shell" as CLI
+participant Lexer
+participant Parser
+participant "Statement Executor" as Executor
+participant Planner
+participant Catalog
+participant "B+ Tree" as Index
+participant "Table Heap" as Heap
+participant "Buffer Pool" as Buffer
+participant "Disk Manager" as Disk
+
+User -> CLI : SELECT name FROM employees WHERE id = 42;
+CLI -> Lexer : tokenize(SQL)
+Lexer --> CLI : tokens
+CLI -> Parser : parseStatement(tokens)
+Parser --> CLI : SelectStatement AST
+CLI -> Executor : execute(statement)
+Executor -> Catalog : findTable("employees")
+Catalog --> Executor : schema
+Executor -> Planner : planSelect(statement, schema, indexes)
+Planner -> Catalog : bind column names and types
+Catalog --> Planner : bound metadata
+Planner --> Executor : Projection(Filter(IndexScan))
+
+Executor -> Index : find(42)
+Index -> Buffer : fetchPage(rootPageId)
+alt page is cached
+  Buffer --> Index : pinned page guard
+else page fault
+  Buffer -> Disk : readPage(pageId)
+  Disk --> Buffer : 4096-byte page
+  Buffer --> Index : pinned page guard
+end
+Index --> Executor : optional RowId
+
+opt key exists
+  Executor -> Heap : fetch(RowId)
+  Heap -> Buffer : fetchPage(RowId.pageId)
+  Buffer --> Heap : pinned page guard
+  Heap --> Executor : row
+end
+
+Executor --> CLI : projected query result
+CLI --> User : formatted table and row count
+
+@enduml

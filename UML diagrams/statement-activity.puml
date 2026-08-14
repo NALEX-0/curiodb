@@ -1,0 +1,49 @@
+@startuml CurioDB Statement Activity
+title SQL Statement Processing Activity
+
+skinparam shadowing false
+
+start
+:Read CLI input until semicolon;
+:Tokenize SQL;
+
+if (All tokens valid?) then (yes)
+  :Parse tokens into AST;
+else (no)
+  :Print lexer error and source location;
+  stop
+endif
+
+if (AST created?) then (yes)
+  :Dispatch statement;
+else (no)
+  :Print parser error and source location;
+  stop
+endif
+
+if (SELECT or EXPLAIN?) then (yes)
+  :Bind table, columns, and literal types;
+  if (Simple equality on indexed INT?) then (yes)
+    :Create IndexScan plan;
+  else (no)
+    :Create SequentialScan plan;
+  endif
+  :Attach Filter and Projection nodes;
+  if (EXPLAIN?) then (yes)
+    :Format plan tree;
+  else (no)
+    :Execute plan;
+  endif
+else (no)
+  :Validate schema and constraints;
+  if (CREATE, INSERT, UPDATE, or DELETE succeeds?) then (yes)
+    :Persist changed pages and metadata;
+  else (no)
+    :Return execution or storage error;
+  endif
+endif
+
+:Print result message or query table;
+stop
+
+@enduml
