@@ -3,12 +3,8 @@
 This directory contains PlantUML source files documenting CurioDB from several
 perspectives:
 
-- [`architecture.puml`](architecture.puml) — component diagram showing the
-  major subsystems and their dependencies.
 - [`select-sequence.puml`](select-sequence.puml) — sequence diagram for parsing,
   planning, and executing an indexed `SELECT` query.
-- [`storage-classes.puml`](storage-classes.puml) — class diagram for pages, rows,
-  the buffer pool, table heap, and B+ tree.
 - [`statement-activity.puml`](statement-activity.puml) — activity diagram for
   processing a statement from CLI input to result output.
 
