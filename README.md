@@ -173,7 +173,7 @@ Lexer -> tokens -> Parser -> AST
 ```
 
 Detailed PlantUML models are available in the
-[`UML diagrams`](UML%20diagrams/README.md) directory.
+[`UML diagrams`](UML%20diagrams) directory.
 
 The major components are:
 
